@@ -33,7 +33,7 @@ class MediaViewHolder extends StatelessWidget {
             _buildRelationRow(theme),
           const SizedBox(height: 8),
           _buildMediaTitle(isSkeleton),
-          if (mediaInfo.minimal != true && mediaInfo.mal != true) ...[
+          if (mediaInfo.minimal != true) ...[
             const SizedBox(height: 2),
             _buildProgressInfo(theme),
           ],

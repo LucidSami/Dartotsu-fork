@@ -38,7 +38,7 @@ extension on MalQueries {
       Mal.bg.value = user.picture ?? '';
       Mal.avatar.value = user.picture ?? '';
       Mal.episodesWatched = user.animeStatistics?['num_episodes']?.toInt();
-      Mal.chapterRead = null;
+      Mal.chapterRead = 0;
       Mal.adult = false;
       Mal.unreadNotificationCount = 0;
       Mal.isInitialized.value = true;

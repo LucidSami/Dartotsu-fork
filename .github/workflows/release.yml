@@ -33,10 +33,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Rust & Android target
+      - name: Set up Rust & Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
       - name: Set up Android NDK
         run: |
@@ -56,17 +56,23 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Build Android Universal Release APK
+        run: flutter build apk --release
+
+      - name: Package Universal APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk Dartotsu-Android-universal.apk
+
       - name: Build Android ARM64 Release APK
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Rename APK
+      - name: Package ARM64 APK
         run: cp build/app/outputs/flutter-apk/app-release.apk Dartotsu-Android-arm64.apk
 
-      - name: Upload Android Artifact
+      - name: Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Dartotsu-Android-arm64
-          path: Dartotsu-Android-arm64.apk
+          name: Dartotsu-Android-APKs
+          path: Dartotsu-Android-*.apk
 
   # ==========================================
   # 2. LINUX BUILD

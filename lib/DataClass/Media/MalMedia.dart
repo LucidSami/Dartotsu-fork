@@ -39,6 +39,58 @@ Media _fromMal(malApi.Media apiMedia) {
     return type;
   }
 
+  int? nextAiringEpisode;
+  int? airingAtTimestamp;
+  int? timeUntilAiring;
+
+  final now = DateTime.now();
+  final rawStatus = apiMedia.status ?? '';
+
+  if (rawStatus == 'currently_airing') {
+    if (apiMedia.startDate != null) {
+      final diff = now.difference(apiMedia.startDate!);
+      if (diff.isNegative) {
+        nextAiringEpisode = 0;
+        final remainingSec = apiMedia.startDate!.difference(now).inSeconds;
+        if (remainingSec > 0) {
+          airingAtTimestamp = apiMedia.startDate!.millisecondsSinceEpoch ~/ 1000;
+          timeUntilAiring = remainingSec * 1000;
+        }
+      } else {
+        final days = diff.inDays;
+        int released = (days ~/ 7) + 1;
+        if (apiMedia.numEpisodes != null &&
+            apiMedia.numEpisodes! > 0 &&
+            released > apiMedia.numEpisodes!) {
+          released = apiMedia.numEpisodes!;
+        }
+        nextAiringEpisode = released;
+
+        if (apiMedia.numEpisodes == null ||
+            apiMedia.numEpisodes! == 0 ||
+            released < apiMedia.numEpisodes!) {
+          final nextEpDate = apiMedia.startDate!.add(Duration(days: released * 7));
+          final nextSec = nextEpDate.difference(now).inSeconds;
+          if (nextSec > 0) {
+            airingAtTimestamp = nextEpDate.millisecondsSinceEpoch ~/ 1000;
+            timeUntilAiring = nextSec * 1000;
+          }
+        }
+      }
+    } else {
+      nextAiringEpisode = 1;
+    }
+  } else if (rawStatus == 'not_yet_aired') {
+    nextAiringEpisode = 0;
+    if (apiMedia.startDate != null) {
+      final remainingSec = apiMedia.startDate!.difference(now).inSeconds;
+      if (remainingSec > 0) {
+        airingAtTimestamp = apiMedia.startDate!.millisecondsSinceEpoch ~/ 1000;
+        timeUntilAiring = remainingSec * 1000;
+      }
+    }
+  }
+
   return Media(
     id: apiMedia.id!,
     idMAL: apiMedia.id,
@@ -58,10 +110,13 @@ Media _fromMal(malApi.Media apiMedia) {
     meanScore: ((apiMedia.mean ?? 0) * 10).toInt(),
     genres: apiMedia.genres?.map((genre) => genre.name ?? '').toList() ?? [],
     format: apiMedia.mediaType,
+    timeUntilAiring: timeUntilAiring,
+    airingAtTimestamp: airingAtTimestamp,
     anime: getMediaType(apiMedia.mediaType) == anilistApi.MediaType.ANIME
         ? Anime(
             totalEpisodes:
                 apiMedia.numEpisodes != 0 ? apiMedia.numEpisodes : null,
+            nextAiringEpisode: nextAiringEpisode,
           )
         : null,
     manga: getMediaType(apiMedia.mediaType) == anilistApi.MediaType.MANGA
