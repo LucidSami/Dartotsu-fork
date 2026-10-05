@@ -153,6 +153,12 @@ class MyListStatus {
   DateTime? startDate;
   @JsonKey(name: "finish_date")
   DateTime? finishDate;
+  @JsonKey(name: "comments")
+  String? comments;
+  @JsonKey(name: "num_times_rewatched")
+  int? numTimesRewatched;
+  @JsonKey(name: "num_times_reread")
+  int? numTimesReread;
 
   MyListStatus({
     this.status,
@@ -163,6 +169,9 @@ class MyListStatus {
     this.updatedAt,
     this.startDate,
     this.finishDate,
+    this.comments,
+    this.numTimesRewatched,
+    this.numTimesReread,
   });
 
   factory MyListStatus.fromJson(Map<String, dynamic> json) => MyListStatus(
@@ -174,6 +183,9 @@ class MyListStatus {
         updatedAt: safeParseDate(json['updated_at']),
         startDate: safeParseDate(json['start_date']),
         finishDate: safeParseDate(json['finish_date']),
+        comments: json['comments'] as String?,
+        numTimesRewatched: (json['num_times_rewatched'] as num?)?.toInt(),
+        numTimesReread: (json['num_times_reread'] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toJson() => _$MyListStatusToJson(this);

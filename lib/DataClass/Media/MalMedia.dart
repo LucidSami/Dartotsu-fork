@@ -107,6 +107,24 @@ Media _fromMal(malApi.Media apiMedia) {
     userProgress: apiMedia.myListStatus?.numEpisodesWatched ??
         apiMedia.myListStatus?.numChaptersRead,
     userScore: ((apiMedia.myListStatus?.score ?? 0) * 10).toInt(),
+    notes: apiMedia.myListStatus?.comments,
+    userRepeat: apiMedia.myListStatus?.numTimesRewatched ??
+        apiMedia.myListStatus?.numTimesReread ??
+        0,
+    userStartedAt: apiMedia.myListStatus?.startDate != null
+        ? FuzzyDate(
+            year: apiMedia.myListStatus!.startDate!.year,
+            month: apiMedia.myListStatus!.startDate!.month,
+            day: apiMedia.myListStatus!.startDate!.day,
+          )
+        : null,
+    userCompletedAt: apiMedia.myListStatus?.finishDate != null
+        ? FuzzyDate(
+            year: apiMedia.myListStatus!.finishDate!.year,
+            month: apiMedia.myListStatus!.finishDate!.month,
+            day: apiMedia.myListStatus!.finishDate!.day,
+          )
+        : null,
     meanScore: ((apiMedia.mean ?? 0) * 10).toInt(),
     genres: apiMedia.genres?.map((genre) => genre.name ?? '').toList() ?? [],
     format: apiMedia.mediaType,

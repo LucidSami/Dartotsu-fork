@@ -1,74 +1,113 @@
-import 'package:dartotsu/Adaptor/Settings/SettingsAdaptor.dart';
 import 'package:expandable_widgets/expandable_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
 import '../../DataClass/Media.dart';
-import '../../DataClass/Setting.dart';
 import '../../Services/TrackSyncManager.dart';
 import '../../Widgets/CustomBottomDialog.dart';
 import '../../Widgets/DropdownMenu.dart';
-import 'Anilist.dart';
-import 'Data/fuzzyData.dart';
+import '../Anilist/Data/fuzzyData.dart';
+import 'Mal.dart';
 
-class ListEditorDialog extends StatefulWidget {
+class MalListEditorDialog extends StatefulWidget {
   final Media media;
   final bool isCompact;
 
-  const ListEditorDialog({
+  const MalListEditorDialog({
     super.key,
     required this.media,
     this.isCompact = true,
   });
 
   @override
-  State<ListEditorDialog> createState() => _ListEditorDialogState();
+  State<MalListEditorDialog> createState() => _MalListEditorDialogState();
 }
 
-class _ListEditorDialogState extends State<ListEditorDialog> {
+class _MalListEditorDialogState extends State<MalListEditorDialog> {
+  late bool isAnime;
   late String status;
   late TextEditingController progressController;
   late TextEditingController scoreController;
-  late bool isPrivate;
   late String suffixText;
-  Map<String, bool>? customListName;
   TextEditingController? noteController;
   TextEditingController? repeatController;
   FuzzyDate? startedAt;
   FuzzyDate? completedAt;
 
+  static String getInitialStatus(String? rawStatus, bool isAnime) {
+    if (rawStatus == null || rawStatus.isEmpty) {
+      return isAnime ? "PLAN TO WATCH" : "PLAN TO READ";
+    }
+    final s = rawStatus.toLowerCase().replaceAll(' ', '_');
+    if (s == 'watching' || s == 'current') return "WATCHING";
+    if (s == 'reading') return "READING";
+    if (s == 'plan_to_watch' || s == 'planning') {
+      return isAnime ? "PLAN TO WATCH" : "PLAN TO READ";
+    }
+    if (s == 'plan_to_read') return "PLAN TO READ";
+    if (s == 'completed') return "COMPLETED";
+    if (s == 'on_hold' || s == 'onhold' || s == 'paused') return "ON HOLD";
+    if (s == 'dropped') return "DROPPED";
+    if (s == 'repeating' || s == 'rewatching') {
+      return isAnime ? "WATCHING" : "READING";
+    }
+    return isAnime ? "WATCHING" : "READING";
+  }
+
+  static String statusToMal(String displayStatus, bool isAnime) {
+    switch (displayStatus) {
+      case "WATCHING":
+        return "watching";
+      case "READING":
+        return "reading";
+      case "PLAN TO WATCH":
+        return "plan_to_watch";
+      case "PLAN TO READ":
+        return "plan_to_read";
+      case "COMPLETED":
+        return "completed";
+      case "ON HOLD":
+        return "on_hold";
+      case "DROPPED":
+        return "dropped";
+      default:
+        return isAnime ? "watching" : "reading";
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     final media = widget.media;
-    status = media.userStatus ?? "PLANNING";
+    isAnime = media.anime != null ||
+        (media.format != 'manga' && media.format != 'novel');
+    status = getInitialStatus(media.userStatus, isAnime);
     progressController =
         TextEditingController(text: media.userProgress?.toString() ?? '??');
     scoreController = TextEditingController(
-        text: media.userScore != null
-            ? (media.userScore! / 10).toString()
-            : "??");
+      text: media.userScore != null && media.userScore! > 0
+          ? (media.userScore! / 10).toString()
+          : "??",
+    );
     if (!widget.isCompact) {
-      noteController = TextEditingController(text: widget.media.notes ?? "");
+      noteController = TextEditingController(text: media.notes ?? "");
       repeatController =
-          TextEditingController(text: widget.media.userRepeat.toString());
+          TextEditingController(text: media.userRepeat.toString());
       startedAt = media.userStartedAt;
       completedAt = media.userCompletedAt;
-      customListName = Map<String, bool>.from(media.inCustomListsOf ?? {});
     }
-    isPrivate = media.isListPrivate;
     suffixText =
         "/ ${media.anime != null ? (media.anime!.nextAiringEpisode != null && media.anime!.nextAiringEpisode != -1 ? media.anime!.nextAiringEpisode : media.anime!.totalEpisodes ?? "??") : media.manga?.totalChapters ?? "??"}";
   }
 
   @override
   void dispose() {
-    super.dispose();
     progressController.dispose();
     scoreController.dispose();
     noteController?.dispose();
     repeatController?.dispose();
+    super.dispose();
   }
 
   @override
@@ -85,6 +124,7 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
     );
     const fieldPadding = EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0);
     var theme = Theme.of(context).colorScheme;
+
     return CustomBottomDialog(
       title: "List Editor",
       viewList: [
@@ -101,23 +141,16 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
               if (!widget.isCompact) ...[
                 _buildDatePickerRow(suffixStyle),
                 const SizedBox(height: 8),
-              ],
-              _buildPrivateSwitch(),
-              const SizedBox(height: 8),
-              if (!widget.isCompact) ...[
                 Expandable(
                   backgroundColor: theme.surface,
-                  boxShadow: [],
+                  boxShadow: const [],
                   arrowWidget:
                       const Icon(Icons.keyboard_arrow_up_rounded, size: 25.0),
                   firstChild: const Text('Other', style: suffixStyle),
-                  secondChild: _buildOtherWidget(
-                    labelStyle,
-                    suffixStyle,
-                  ),
+                  secondChild: _buildOtherWidget(labelStyle, suffixStyle),
                 ),
                 const SizedBox(height: 8),
-              ]
+              ],
             ],
           ),
         ),
@@ -130,11 +163,12 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
   }
 
   Widget _buildStatusDropdown() {
+    final options = Mal.getStatusList(isAnime);
     return buildDropdownMenu(
       padding: const EdgeInsets.all(0),
       borderRadius: 16,
       prefixIcon: Icons.playlist_play_rounded,
-      options: Anilist.status,
+      options: options,
       hintText: status,
       labelText: "STATUS",
       currentValue: status,
@@ -144,76 +178,6 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
         });
       },
     );
-  }
-
-  Widget _buildOtherWidget(
-    TextStyle labelStyle,
-    TextStyle suffixStyle,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 8),
-        TextField(
-          controller: repeatController,
-          keyboardType: const TextInputType.numberWithOptions(decimal: false),
-          style: labelStyle,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: InputDecoration(
-            labelText: "Total Repeats",
-            labelStyle: labelStyle,
-            suffixStyle: suffixStyle,
-            prefixIcon: const Icon(Icons.redo_rounded),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Colors.transparent),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: noteController,
-          maxLines: null,
-          keyboardType: TextInputType.multiline,
-          style: labelStyle,
-          decoration: InputDecoration(
-            labelText: "Note",
-            labelStyle: labelStyle,
-            prefixIcon: const Icon(Icons.edit_note_rounded),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Colors.transparent),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        ..._buildCustomListWidgets(suffixStyle),
-      ],
-    );
-  }
-
-  List<Widget> _buildCustomListWidgets(TextStyle suffixStyle) {
-    if (customListName == null || customListName!.isEmpty) {
-      return [Text("No custom lists available", style: suffixStyle)];
-    }
-
-    return [
-      Text("Custom Lists", style: suffixStyle),
-      const SizedBox(height: 16),
-      ...customListName!.entries.map(
-        (entry) => SwitchListTile(
-          title: Text(entry.key),
-          value: entry.value,
-          onChanged: (value) {
-            setState(() {
-              customListName![entry.key] = value;
-            });
-          },
-        ),
-      )
-    ];
   }
 
   Widget _buildProgressField(TextStyle labelStyle, TextStyle suffixStyle) {
@@ -263,6 +227,29 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildScoreField(TextStyle labelStyle, TextStyle suffixStyle) {
+    return TextField(
+      controller: scoreController,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      style: labelStyle,
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'^\d*(\.\d?)?$')),
+      ],
+      decoration: InputDecoration(
+        labelText: "SCORE",
+        labelStyle: labelStyle,
+        suffixText: "/ 10",
+        suffixStyle: suffixStyle,
+        prefixIcon: const Icon(Icons.star_rounded),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.transparent),
+        ),
+      ),
     );
   }
 
@@ -346,74 +333,70 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
     );
   }
 
-  Widget _buildScoreField(TextStyle labelStyle, TextStyle suffixStyle) {
-    return TextField(
-      controller: scoreController,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      style: labelStyle,
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^[1-9]\d*(\.\d?)?$')),
-      ],
-      decoration: InputDecoration(
-        labelText: "SCORE",
-        labelStyle: labelStyle,
-        suffixText: "/ 10",
-        suffixStyle: suffixStyle,
-        prefixIcon: const Icon(Icons.star_rounded),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Colors.transparent),
+  Widget _buildOtherWidget(TextStyle labelStyle, TextStyle suffixStyle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        TextField(
+          controller: repeatController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: false),
+          style: labelStyle,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            labelText: isAnime ? "Total Rewatches" : "Total Rereads",
+            labelStyle: labelStyle,
+            suffixStyle: suffixStyle,
+            prefixIcon: const Icon(Icons.redo_rounded),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Colors.transparent),
+            ),
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildPrivateSwitch() {
-    return SettingsAdaptor(
-      settings: [
-        Setting(
-          type: SettingType.switchType,
-          name: 'Private',
-          icon: Icons.accessible_forward_outlined,
-          isChecked: widget.media.isListPrivate,
-          onSwitchChange: (value) {
-            setState(() {
-              isPrivate = value;
-            });
-          },
+        const SizedBox(height: 8),
+        TextField(
+          controller: noteController,
+          maxLines: null,
+          keyboardType: TextInputType.multiline,
+          style: labelStyle,
+          decoration: InputDecoration(
+            labelText: "Note",
+            labelStyle: labelStyle,
+            prefixIcon: const Icon(Icons.edit_note_rounded),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Colors.transparent),
+            ),
+          ),
         ),
       ],
     );
   }
 
   Future<void> _onSave() async {
-    var score = (double.tryParse(scoreController.text));
+    final score = double.tryParse(scoreController.text);
+    final progress = int.tryParse(progressController.text);
 
     widget.media
-      ..userStatus = status
-      ..userProgress = int.tryParse(progressController.text)
-      ..userScore = score != null ? (score * 10).toInt().clamp(0, 100) : null
-      ..isListPrivate = isPrivate;
+      ..userStatus = statusToMal(status, isAnime)
+      ..userProgress = progress
+      ..userScore = score != null ? (score * 10).toInt().clamp(0, 100) : null;
 
-    List<String>? list;
     if (!widget.isCompact) {
       widget.media
         ..notes = noteController?.text
         ..userStartedAt = startedAt
         ..userCompletedAt = completedAt
-        ..userRepeat = int.tryParse(repeatController?.text ?? "1") ?? 1;
-      widget.media.inCustomListsOf = customListName;
-      list = customListName?.entries
-          .where((entry) => entry.value)
-          .map((entry) => entry.key)
-          .toList();
+        ..userRepeat = int.tryParse(repeatController?.text ?? "0") ?? 0;
     }
+
     Get.back();
     await TrackSyncManager.instance.syncEditList(
       media: widget.media,
-      fromMal: false,
-      customList: list,
+      fromMal: true,
     );
   }
 
@@ -421,7 +404,7 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
     Get.back();
     await TrackSyncManager.instance.syncDeleteFromList(
       media: widget.media,
-      fromMal: false,
+      fromMal: true,
     );
   }
 }

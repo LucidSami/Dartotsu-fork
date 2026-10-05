@@ -24,6 +24,24 @@ class MalController extends BaseServiceData {
     mutations = MalMutations(executeMutation);
   }
 
+  final List<String> animeStatus = [
+    "PLAN TO WATCH",
+    "WATCHING",
+    "COMPLETED",
+    "ON HOLD",
+    "DROPPED",
+  ];
+
+  final List<String> mangaStatus = [
+    "PLAN TO READ",
+    "READING",
+    "COMPLETED",
+    "ON HOLD",
+    "DROPPED",
+  ];
+
+  List<String> getStatusList(bool isAnime) => isAnime ? animeStatus : mangaStatus;
+
   final List<String> seasons = ["winter", "spring", "summer", "fall"];
   final int currentYear = DateTime.now().year;
   final int currentMonth = DateTime.now().month;

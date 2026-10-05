@@ -109,6 +109,7 @@ class MalMutations extends Mutations {
   Future<void> editList(Media media, {List<String>? customList}) async {
     if (Mal.token.value.isEmpty) {
       debugPrint("MAL editList skipped: User is not logged into MAL");
+      snackString("Please login to MyAnimeList first");
       return;
     }
 
@@ -121,13 +122,19 @@ class MalMutations extends Mutations {
         : "https://api.myanimelist.net/v2/manga/$malId/my_list_status";
 
     final body = <String, String>{};
-    if (media.userStatus != null && media.userStatus!.isNotEmpty) {
-      body["status"] = _normalizeMalStatus(media.userStatus!, isAnime);
-    }
+    final normalizedStatus = _normalizeMalStatus(
+      media.userStatus ?? (isAnime ? "plan_to_watch" : "plan_to_read"),
+      isAnime,
+    );
+    body["status"] = normalizedStatus;
+
     if (media.userScore != null && media.userScore! > 0) {
       // MAL uses 0-10 integer rating; userScore in Dartotsu is 0-100
       body["score"] = ((media.userScore! / 10).round()).clamp(0, 10).toString();
+    } else if (media.userScore == 0) {
+      body["score"] = "0";
     }
+
     if (media.userProgress != null) {
       if (isAnime) {
         body["num_watched_episodes"] = media.userProgress.toString();
@@ -135,13 +142,37 @@ class MalMutations extends Mutations {
         body["num_chapters_read"] = media.userProgress.toString();
       }
     }
-    if (media.notes != null && media.notes!.isNotEmpty) {
+    if (media.notes != null) {
       body["comments"] = media.notes!;
+    }
+    if (media.userStartedAt != null && media.userStartedAt!.year != null) {
+      final y = media.userStartedAt!.year;
+      final m = (media.userStartedAt!.month ?? 1).toString().padLeft(2, '0');
+      final d = (media.userStartedAt!.day ?? 1).toString().padLeft(2, '0');
+      body["start_date"] = "$y-$m-$d";
+    }
+    if (media.userCompletedAt != null && media.userCompletedAt!.year != null) {
+      final y = media.userCompletedAt!.year;
+      final m = (media.userCompletedAt!.month ?? 1).toString().padLeft(2, '0');
+      final d = (media.userCompletedAt!.day ?? 1).toString().padLeft(2, '0');
+      body["finish_date"] = "$y-$m-$d";
+    }
+    final isRewatch = media.userRepeat > 0 ||
+        media.userStatus?.toUpperCase() == 'REPEATING' ||
+        media.userStatus?.toUpperCase() == 'REWATCHING' ||
+        media.userStatus?.toUpperCase() == 'REREADING';
+    if (isAnime) {
+      if (isRewatch) body["is_rewatching"] = "true";
+      if (media.userRepeat > 0) body["num_times_rewatched"] = media.userRepeat.toString();
+    } else {
+      if (isRewatch) body["is_rereading"] = "true";
+      if (media.userRepeat > 0) body["num_times_reread"] = media.userRepeat.toString();
     }
 
     try {
       final response = await executeMutation(url, method: 'PUT', body: body);
       if (response != null && response.statusCode >= 200 && response.statusCode < 300) {
+        media.userStatus = body["status"];
         ApiCacheManager.instance.invalidate('mal_home_page');
         if (isAnime) {
           ApiCacheManager.instance.invalidate('mal_anime_page');
@@ -149,16 +180,27 @@ class MalMutations extends Mutations {
           ApiCacheManager.instance.invalidate('mal_manga_page');
         }
         Refresh.activity[RefreshId.Mal.homePage]?.value = true;
+        Refresh.activity[isAnime ? RefreshId.Mal.animePage : RefreshId.Mal.mangaPage]?.value = true;
         Refresh.activity[media.id]?.value = true;
+        if (media.idMAL != null) {
+          Refresh.activity[media.idMAL!]?.value = true;
+        }
+        snackString("Saved to your list");
+      } else {
+        snackString("Failed to save to MAL: ${response?.statusCode ?? 'network error'}");
       }
     } catch (e) {
       debugPrint("MAL editList exception: $e");
+      snackString("Failed to save to MAL: $e");
     }
   }
 
   @override
   Future<void> deleteFromList(Media media) async {
-    if (Mal.token.value.isEmpty) return;
+    if (Mal.token.value.isEmpty) {
+      snackString("Please login to MyAnimeList first");
+      return;
+    }
 
     final malId = media.idMAL ?? (media.mal ? media.id : null);
     if (malId == null || malId <= 0) return;
@@ -173,6 +215,11 @@ class MalMutations extends Mutations {
       if (response != null && (response.statusCode >= 200 && response.statusCode < 300 || response.statusCode == 404)) {
         media.userStatus = null;
         media.userProgress = null;
+        media.userScore = 0;
+        media.notes = null;
+        media.userStartedAt = null;
+        media.userCompletedAt = null;
+        media.userRepeat = 0;
 
         ApiCacheManager.instance.invalidate('mal_home_page');
         if (isAnime) {
@@ -182,16 +229,23 @@ class MalMutations extends Mutations {
         }
 
         Refresh.activity[RefreshId.Mal.homePage]?.value = true;
+        Refresh.activity[isAnime ? RefreshId.Mal.animePage : RefreshId.Mal.mangaPage]?.value = true;
         Refresh.activity[media.id]?.value = true;
+        if (media.idMAL != null) {
+          Refresh.activity[media.idMAL!]?.value = true;
+        }
         snackString("Removed ${media.mainName()} from your list");
+      } else {
+        snackString("Failed to remove from MAL: ${response?.statusCode ?? 'network error'}");
       }
     } catch (e) {
       debugPrint("MAL deleteFromList exception: $e");
+      snackString("Failed to remove from MAL: $e");
     }
   }
 
   String _normalizeMalStatus(String status, bool isAnime) {
-    final lower = status.toLowerCase();
+    final lower = status.toLowerCase().replaceAll(' ', '_');
     if (lower == 'current' || lower == 'watching' || lower == 'reading') {
       return isAnime ? 'watching' : 'reading';
     }

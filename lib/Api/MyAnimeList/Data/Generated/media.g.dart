@@ -128,6 +128,9 @@ Map<String, dynamic> _$MyListStatusToJson(MyListStatus instance) =>
       'updated_at': instance.updatedAt?.toIso8601String(),
       'start_date': instance.startDate?.toIso8601String(),
       'finish_date': instance.finishDate?.toIso8601String(),
+      'comments': instance.comments,
+      'num_times_rewatched': instance.numTimesRewatched,
+      'num_times_reread': instance.numTimesReread,
     };
 
 Ranking _$RankingFromJson(Map<String, dynamic> json) => Ranking(

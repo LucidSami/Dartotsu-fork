@@ -10,6 +10,9 @@ import '../../Services/MediaService.dart';
 import '../../Services/Screens/BaseLoginScreen.dart';
 import '../../Services/Screens/BaseSearchScreen.dart';
 import '../../Theme/LanguageSwitcher.dart';
+import '../../Widgets/CustomBottomDialog.dart';
+import '../../DataClass/Media.dart';
+import 'MalListEditor.dart';
 import 'Screen/MalAnimeScreen.dart';
 import 'Screen/MalHomeScreen.dart';
 import 'Screen/MalMangaScreen.dart';
@@ -47,6 +50,15 @@ class MalService extends MediaService {
 
   @override
   BaseSearchScreen get searchScreen => MalSearchScreen(Mal);
+
+  @override
+  void compactListEditor(BuildContext context, Media media) =>
+      showCustomBottomDialog(
+          context, MalListEditorDialog(media: media, isCompact: true));
+
+  @override
+  void listEditor(BuildContext context, Media media) => showCustomBottomDialog(
+      context, MalListEditorDialog(media: media, isCompact: false));
 }
 
 class MalLoginScreen extends BaseLoginScreen {

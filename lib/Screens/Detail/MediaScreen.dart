@@ -544,7 +544,8 @@ class MediaInfoPageState extends State<MediaInfoPage> {
           backgroundColor: Colors.transparent,
         ),
         child: Text(
-          mediaData.userStatus?.toUpperCase() ?? getString.addToList,
+          mediaData.userStatus?.replaceAll('_', ' ').toUpperCase() ??
+              getString.addToList,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 14,

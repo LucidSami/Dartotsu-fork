@@ -5,6 +5,7 @@ import '../DataClass/Media.dart';
 import '../Functions/Function.dart';
 import '../Functions/string_extensions.dart';
 import '../Preferences/PrefManager.dart';
+import 'ApiCacheManager.dart';
 
 class TrackSyncManager {
   static final TrackSyncManager instance = TrackSyncManager._internal();
@@ -15,6 +16,10 @@ class TrackSyncManager {
   final Map<int, int> _recentProgressMap = {};
 
   int? getRecentProgress(int mediaId) => _recentProgressMap[mediaId];
+
+  void recordProgress(int mediaId, int progress) {
+    _recentProgressMap[mediaId] = progress;
+  }
 
   /// Syncs episode / chapter progress according to the 3 scenarios:
   /// 1. MAL logged in, AniList isn't -> only MAL tracks, AniList ignored silently without errors
@@ -174,5 +179,211 @@ class TrackSyncManager {
     } catch (e) {
       debugPrint("TrackSyncManager: MAL sync ignored silently on error: $e");
     }
+  }
+
+  Future<void> syncEditList({
+    required Media media,
+    bool fromMal = false,
+    List<String>? customList,
+  }) async {
+    final bool anilistLoggedIn =
+        Anilist.token.value.isNotEmpty && Anilist.userid != null;
+    final bool malLoggedIn = Mal.token.value.isNotEmpty;
+
+    if (media.userProgress != null) {
+      _recentProgressMap[media.id] = media.userProgress!;
+      if (media.idMAL != null) _recentProgressMap[media.idMAL!] = media.userProgress!;
+    }
+
+    if (fromMal) {
+      await Mal.mutations?.editList(media);
+
+      if (anilistLoggedIn) {
+        try {
+          final malId = media.idMAL ?? (media.mal ? media.id : null);
+          if (malId != null) {
+            int? anilistId = _malToAnilistIdMap[malId];
+            Media? anilistMedia;
+            if (anilistId != null) {
+              anilistMedia = Media(
+                id: anilistId,
+                idMAL: malId,
+                mal: false,
+                name: media.name,
+                nameRomaji: media.nameRomaji,
+                userPreferredName: media.userPreferredName,
+                anime: media.anime,
+                manga: media.manga,
+                format: media.format,
+                status: media.status,
+              );
+            } else {
+              anilistMedia = await Anilist.query?.getMedia(malId, mal: true);
+              if (anilistMedia != null) {
+                _malToAnilistIdMap[malId] = anilistMedia.id;
+              }
+            }
+
+            if (anilistMedia != null) {
+              anilistMedia
+                ..userStatus = _mapMalStatusToAnilist(media.userStatus)
+                ..userProgress = media.userProgress
+                ..userScore = media.userScore
+                ..notes = media.notes
+                ..userStartedAt = media.userStartedAt
+                ..userCompletedAt = media.userCompletedAt
+                ..userRepeat = media.userRepeat;
+              await Anilist.mutations?.editList(anilistMedia);
+              ApiCacheManager.instance.invalidate('anilist_home_page');
+              Refresh.activity[RefreshId.Anilist.homePage]?.value = true;
+              Refresh.activity[anilistMedia.id]?.value = true;
+            }
+          }
+        } catch (e) {
+          debugPrint("TrackSyncManager: Sync edit to AniList error: $e");
+        }
+      }
+    } else {
+      await Anilist.mutations?.editList(media, customList: customList);
+
+      if (malLoggedIn) {
+        try {
+          var malId = media.idMAL ?? _anilistToMalIdMap[media.id];
+          if (malId == null || malId <= 0) {
+            final fetched = await Anilist.query?.getMedia(media.id);
+            if (fetched?.idMAL != null) {
+              malId = fetched!.idMAL;
+            }
+          }
+          if (malId != null && malId > 0) {
+            _anilistToMalIdMap[media.id] = malId;
+            final isAnime = media.anime != null ||
+                (media.format != 'manga' && media.format != 'novel');
+            final malMedia = Media(
+              id: malId,
+              idMAL: malId,
+              mal: true,
+              name: media.name,
+              nameRomaji: media.nameRomaji,
+              userPreferredName: media.userPreferredName,
+              anime: media.anime,
+              manga: media.manga,
+              format: media.format,
+              status: media.status,
+            )
+              ..userStatus = _mapAnilistStatusToMal(media.userStatus, isAnime)
+              ..userProgress = media.userProgress
+              ..userScore = media.userScore
+              ..notes = media.notes
+              ..userStartedAt = media.userStartedAt
+              ..userCompletedAt = media.userCompletedAt
+              ..userRepeat = media.userRepeat;
+            await Mal.mutations?.editList(malMedia);
+            ApiCacheManager.instance.invalidate('mal_home_page');
+            Refresh.activity[RefreshId.Mal.homePage]?.value = true;
+            Refresh.activity[malId]?.value = true;
+          }
+        } catch (e) {
+          debugPrint("TrackSyncManager: Sync edit to MAL error: $e");
+        }
+      }
+    }
+
+    Refresh.activity[media.id]?.value = true;
+    if (media.idMAL != null) Refresh.activity[media.idMAL!]?.value = true;
+  }
+
+  Future<void> syncDeleteFromList({
+    required Media media,
+    bool fromMal = false,
+  }) async {
+    final bool anilistLoggedIn =
+        Anilist.token.value.isNotEmpty && Anilist.userid != null;
+    final bool malLoggedIn = Mal.token.value.isNotEmpty;
+
+    if (fromMal) {
+      await Mal.mutations?.deleteFromList(media);
+      if (anilistLoggedIn) {
+        try {
+          final malId = media.idMAL ?? (media.mal ? media.id : null);
+          if (malId != null) {
+            int? anilistId = _malToAnilistIdMap[malId];
+            if (anilistId == null) {
+              final anilistMedia = await Anilist.query?.getMedia(malId, mal: true);
+              anilistId = anilistMedia?.id;
+            }
+            if (anilistId != null) {
+              await Anilist.mutations?.deleteFromList(Media(
+                id: anilistId,
+                mal: false,
+                nameRomaji: media.nameRomaji,
+                userPreferredName: media.userPreferredName,
+              ));
+              ApiCacheManager.instance.invalidate('anilist_home_page');
+              Refresh.activity[RefreshId.Anilist.homePage]?.value = true;
+              Refresh.activity[anilistId]?.value = true;
+            }
+          }
+        } catch (e) {
+          debugPrint("TrackSyncManager: Sync delete to AniList error: $e");
+        }
+      }
+    } else {
+      await Anilist.mutations?.deleteFromList(media);
+      if (malLoggedIn) {
+        try {
+          var malId = media.idMAL ?? _anilistToMalIdMap[media.id];
+          if (malId != null && malId > 0) {
+            await Mal.mutations?.deleteFromList(Media(
+              id: malId,
+              idMAL: malId,
+              mal: true,
+              nameRomaji: media.nameRomaji,
+              userPreferredName: media.userPreferredName,
+            ));
+            ApiCacheManager.instance.invalidate('mal_home_page');
+            Refresh.activity[RefreshId.Mal.homePage]?.value = true;
+            Refresh.activity[malId]?.value = true;
+          }
+        } catch (e) {
+          debugPrint("TrackSyncManager: Sync delete to MAL error: $e");
+        }
+      }
+    }
+
+    Refresh.activity[media.id]?.value = true;
+    if (media.idMAL != null) Refresh.activity[media.idMAL!]?.value = true;
+  }
+
+  static String _mapMalStatusToAnilist(String? malStatus) {
+    if (malStatus == null || malStatus.isEmpty) return "PLANNING";
+    final s = malStatus.toLowerCase().replaceAll(' ', '_');
+    if (s == 'watching' || s == 'reading' || s == 'current') return 'CURRENT';
+    if (s == 'completed') return 'COMPLETED';
+    if (s == 'on_hold' || s == 'paused' || s == 'onhold') return 'PAUSED';
+    if (s == 'dropped') return 'DROPPED';
+    if (s == 'plan_to_watch' || s == 'plan_to_read' || s == 'planning') return 'PLANNING';
+    if (s == 'rewatching' || s == 'rereading' || s == 'repeating') return 'REPEATING';
+    return 'CURRENT';
+  }
+
+  static String _mapAnilistStatusToMal(String? anilistStatus, bool isAnime) {
+    if (anilistStatus == null || anilistStatus.isEmpty) {
+      return isAnime ? 'plan_to_watch' : 'plan_to_read';
+    }
+    final s = anilistStatus.toUpperCase();
+    if (s == 'CURRENT' || s == 'WATCHING' || s == 'READING') {
+      return isAnime ? 'watching' : 'reading';
+    }
+    if (s == 'PLANNING' || s == 'PLAN TO WATCH' || s == 'PLAN TO READ') {
+      return isAnime ? 'plan_to_watch' : 'plan_to_read';
+    }
+    if (s == 'COMPLETED') return 'completed';
+    if (s == 'PAUSED' || s == 'ON HOLD') return 'on_hold';
+    if (s == 'DROPPED') return 'dropped';
+    if (s == 'REPEATING' || s == 'REWATCHING' || s == 'REREADING') {
+      return isAnime ? 'watching' : 'reading';
+    }
+    return isAnime ? 'watching' : 'reading';
   }
 }
