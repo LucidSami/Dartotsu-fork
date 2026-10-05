@@ -248,4 +248,91 @@ extension on AnilistQueries {
     }
     ''';
   }
+
+  Future<List<Media>?> _getFavouritesPage({required bool anime, required int page, int? id}) async {
+    id ??= Anilist.userid;
+    if (id == null || id == 0) return [];
+    try {
+      final response = await executeQuery<UserListsResponse>(
+          '''{${_favMediaQuery(anime, page, id: id)}}''');
+      final favourites = response?.data?.user?.favourites;
+      final apiMediaList = anime ? favourites?.anime : favourites?.manga;
+      if (apiMediaList?.edges == null) return [];
+      final list = apiMediaList!.edges!
+          .map((e) {
+            if (e.node != null) {
+              var media = Media.mediaData(e.node!);
+              media.isFav = true;
+              media.cameFromHome = true;
+              return media;
+            }
+            return null;
+          })
+          .whereType<Media>()
+          .toList();
+      return list;
+    } catch (e) {
+      debugPrint("Error fetching favourites page $page: $e");
+      return null;
+    }
+  }
+
+  Future<List<Media>?> _getUserMediaListPaged({
+    required bool anime,
+    required String status,
+    required int page,
+    int perPage = 50,
+  }) async {
+    final userId = Anilist.userid;
+    if (userId == null || userId == 0) return [];
+    final typeStr = anime ? "ANIME" : "MANGA";
+    final query = '''
+      {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { hasNextPage }
+          mediaList(userId: $userId, type: $typeStr, status: $status, sort: UPDATED_TIME_DESC) {
+            progress
+            score(format: POINT_100)
+            status
+            private
+            media {
+              id
+              idMal
+              type
+              isAdult
+              status
+              chapters
+              episodes
+              nextAiringEpisode { episode airingAt timeUntilAiring }
+              meanScore
+              isFavourite
+              format
+              bannerImage
+              coverImage { large }
+              title { english romaji userPreferred }
+            }
+          }
+        }
+      }
+    ''';
+    try {
+      final response = await executeQuery<Map<String, dynamic>>(query);
+      final pageData = response?['Page'] ?? response?['data']?['Page'];
+      final mediaListJson = pageData?['mediaList'] as List<dynamic>?;
+      if (mediaListJson == null) return [];
+      final list = mediaListJson.map((item) {
+        final entry = api.MediaList.fromJson(item as Map<String, dynamic>);
+        final m = Media.mediaListData(entry);
+        m.cameFromHome = true;
+        if (status == 'CURRENT') {
+          m.cameFromContinue = true;
+        }
+        return m;
+      }).toList();
+      return list;
+    } catch (e) {
+      debugPrint("Error fetching paged user media list: $e");
+      return null;
+    }
+  }
 }

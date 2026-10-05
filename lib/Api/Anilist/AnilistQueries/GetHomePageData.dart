@@ -35,11 +35,14 @@ extension on AnilistQueries {
           List<Media> removedMedia = [];
           var removeList = params["removeList"] as List<int>;
           var hidePrivate = params["hidePrivate"] as bool;
+          var isContinue = (params["isContinue"] as bool?) ?? false;
           for (var entry in (params["list"] ?? []) as List<api.MediaList>) {
             var media = Media.mediaListData(entry);
             if (!removeList.contains(media.id) &&
                 (!hidePrivate || !media.isListPrivate)) {
-              media.cameFromContinue = true;
+              if (isContinue) {
+                media.cameFromContinue = true;
+              }
               subMap[media.id] = media;
             } else {
               removedMedia.add(media);
@@ -65,7 +68,8 @@ extension on AnilistQueries {
           "list": mediaList,
           "removeList": removeList,
           "hidePrivate": hidePrivate,
-          "continueList": list
+          "continueList": list,
+          "isContinue": type == "Anime" || type == "Manga",
         });
 
         removedMedia.addAll(returnArray.$2);

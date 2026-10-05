@@ -22,11 +22,11 @@ class PrefName {
       'homeLayoutOrder',
       {
         'Continue Watching': true,
+        'Planned Anime': true,
         'Favourite Anime': false,
-        'Planned Anime': false,
         'Continue Reading': true,
+        'Planned Manga': true,
         'Favourite Manga': false,
-        'Planned Manga': false,
         'Recommended': true,
       },
       PrefLocation.COMMON);

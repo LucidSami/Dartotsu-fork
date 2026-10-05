@@ -96,4 +96,12 @@ class MalQueries extends Queries {
   @override
   Future<SearchResults?> search(SearchResults? searchResults) =>
       _search(searchResults);
+
+  Future<List<Media>?> loadUserMediaListPage(
+    String type,
+    String status,
+    int page, {
+    int limit = 50,
+  }) =>
+      _loadUserMediaListPage(type, status, page, limit: limit);
 }

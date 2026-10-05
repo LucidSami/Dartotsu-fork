@@ -120,4 +120,20 @@ class AnilistQueries extends Queries {
       _getReviews(mediaId, page: page, perPage: perPage, sort: sort);
 
   Future<List<Media>> getRecentUpdates(int page) => _getRecentUpdates(page);
+
+  Future<List<Media>?> getFavouritesPage({required bool anime, required int page, int? id}) =>
+      _getFavouritesPage(anime: anime, page: page, id: id);
+
+  Future<List<Media>?> getUserMediaListPaged({
+    required bool anime,
+    required String status,
+    required int page,
+    int perPage = 50,
+  }) =>
+      _getUserMediaListPaged(
+        anime: anime,
+        status: status,
+        page: page,
+        perPage: perPage,
+      );
 }

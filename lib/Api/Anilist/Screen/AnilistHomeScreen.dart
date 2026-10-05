@@ -5,12 +5,15 @@ import 'package:get/get.dart';
 import '../../../Adaptor/Media/Widgets/MediaSection.dart';
 import '../../../DataClass/Media.dart';
 import '../../../DataClass/MediaSection.dart';
+import '../../../DataClass/SearchResults.dart';
 import '../../../DataClass/User.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
+import '../../../Screens/MediaList/MediaListDetailScreen.dart';
 import '../../../Theme/LanguageSwitcher.dart';
 import '../../../main.dart';
 import '../Anilist.dart';
+import '../AnilistQueries.dart';
 
 class AnilistHomeScreen extends BaseHomeScreen {
   final AnilistController Anilist;
@@ -38,14 +41,18 @@ class AnilistHomeScreen extends BaseHomeScreen {
 
   @override
   Future<void> loadAll({bool force = false}) async {
-    resetPageData();
+    if (animeContinue.value == null) {
+      resetPageData();
+    }
     try {
       await getUserId();
       await setListImages();
       await loadList(force: force);
     } catch (e) {
-      snackString("AniList API is down or unreachable");
-      _setMediaList({});
+      if (animeContinue.value == null) {
+        snackString("AniList API is down or unreachable");
+        _setMediaList({});
+      }
     }
   }
 
@@ -60,15 +67,17 @@ class AnilistHomeScreen extends BaseHomeScreen {
   Future<void> loadList({bool force = false}) async {
     try {
       final res = await Anilist.query!.initHomePage(force: force);
-      if (res != null) {
+      if (res != null && res.isNotEmpty) {
         _setMediaList(res);
-      } else {
+      } else if (animeContinue.value == null) {
         snackString("AniList API is down or unreachable");
         _setMediaList({});
       }
     } catch (e) {
-      snackString("AniList API is down or unreachable");
-      _setMediaList({});
+      if (animeContinue.value == null) {
+        snackString("AniList API is down or unreachable");
+        _setMediaList({});
+      }
     }
   }
 
@@ -169,10 +178,77 @@ class AnilistHomeScreen extends BaseHomeScreen {
       ),
     ];
 
-    final homeLayoutMap = loadData(PrefName.anilistHomeLayout);
+    final bool migrationDone =
+        loadCustomData<bool>('anilist_planned_sections_v2') ?? false;
+    Map<dynamic, dynamic> homeLayoutMap =
+        Map<dynamic, dynamic>.from(loadData(PrefName.anilistHomeLayout));
+    if (!migrationDone) {
+      homeLayoutMap['Planned Anime'] = true;
+      homeLayoutMap['Planned Manga'] = true;
+      saveData(PrefName.anilistHomeLayout, homeLayoutMap);
+      saveCustomData('anilist_planned_sections_v2', true);
+    }
+
     final sectionMap = {
       for (var section in mediaSections) section.pairTitle: section,
     };
+
+    final anilistQuery = Anilist.query as AnilistQueries?;
+
+    Future<List<Media>?> Function(int page)? getFetchMore(String pairTitle) {
+      if (anilistQuery == null) return null;
+      switch (pairTitle) {
+        case 'Continue Watching':
+          return (page) => anilistQuery.getUserMediaListPaged(
+                anime: true,
+                status: 'CURRENT',
+                page: page,
+              );
+        case 'Planned Anime':
+          return (page) => anilistQuery.getUserMediaListPaged(
+                anime: true,
+                status: 'PLANNING',
+                page: page,
+              );
+        case 'Continue Reading':
+          return (page) => anilistQuery.getUserMediaListPaged(
+                anime: false,
+                status: 'CURRENT',
+                page: page,
+              );
+        case 'Planned Manga':
+          return (page) => anilistQuery.getUserMediaListPaged(
+                anime: false,
+                status: 'PLANNING',
+                page: page,
+              );
+        case 'Favourite Anime':
+          return (page) => anilistQuery.getFavouritesPage(
+                anime: true,
+                page: page,
+              );
+        case 'Favourite Manga':
+          return (page) => anilistQuery.getFavouritesPage(
+                anime: false,
+                page: page,
+              );
+        case 'Recommended':
+          return (page) async {
+            final res = await anilistQuery.search(
+              SearchResults(
+                type: SearchType.ANIME,
+                page: page,
+                perPage: 30,
+                sort: "SCORE_DESC",
+              ),
+            );
+            return res?.results ?? [];
+          };
+        default:
+          return null;
+      }
+    }
+
     final sectionWidgets = homeLayoutMap.entries
         .where((entry) => entry.value)
         .map((entry) => sectionMap[entry.key])
@@ -192,6 +268,18 @@ class AnilistHomeScreen extends BaseHomeScreen {
         mediaList: section.list,
         isLarge: section.isLarge,
         onLongPressTitle: section.onLongPressTitle,
+        onTrailingIconTap: () {
+          if (section.list?.isNotEmpty ?? false) {
+            navigateToPage(
+              context,
+              MediaListDetailScreen(
+                title: section.title,
+                mediaList: section.list!,
+                fetchMore: getFetchMore(section.pairTitle),
+              ),
+            );
+          }
+        },
         customNullListIndicator: buildNullIndicator(
           context,
           section.emptyIcon,
@@ -208,6 +296,17 @@ class AnilistHomeScreen extends BaseHomeScreen {
       title: getString.hiddenMedia,
       mediaList: hidden.value,
       onLongPressTitle: () => showHidden.value = !showHidden.value,
+      onTrailingIconTap: () {
+        if (hidden.value?.isNotEmpty ?? false) {
+          navigateToPage(
+            context,
+            MediaListDetailScreen(
+              title: getString.hiddenMedia,
+              mediaList: hidden.value!,
+            ),
+          );
+        }
+      },
       customNullListIndicator: buildNullIndicator(
         context,
         Icons.visibility_off,

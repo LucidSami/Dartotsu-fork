@@ -9,6 +9,7 @@ import '../../../DataClass/Media.dart';
 import '../../../DataClass/MediaSection.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
+import '../../../Screens/MediaList/MediaListDetailScreen.dart';
 import '../../../Services/Screens/BaseHomeScreen.dart';
 import '../../../main.dart';
 import '../Mal.dart';
@@ -213,6 +214,41 @@ class MalHomeScreen extends BaseHomeScreen {
     final sectionMap = {
       for (var section in mediaSections) section.pairTitle: section
     };
+
+    final malQuery = Mal.query as MalQueries?;
+
+    Future<List<Media>?> Function(int page)? getFetchMore(String pairTitle) {
+      if (malQuery == null) return null;
+      switch (pairTitle) {
+        case 'Continue Watching':
+          return (page) =>
+              malQuery.loadUserMediaListPage('anime', 'watching', page);
+        case 'OnHold Anime':
+          return (page) =>
+              malQuery.loadUserMediaListPage('anime', 'on_hold', page);
+        case 'Planned Anime':
+          return (page) =>
+              malQuery.loadUserMediaListPage('anime', 'plan_to_watch', page);
+        case 'Dropped Anime':
+          return (page) =>
+              malQuery.loadUserMediaListPage('anime', 'dropped', page);
+        case 'Continue Reading':
+          return (page) =>
+              malQuery.loadUserMediaListPage('manga', 'reading', page);
+        case 'OnHold Manga':
+          return (page) =>
+              malQuery.loadUserMediaListPage('manga', 'on_hold', page);
+        case 'Planned Manga':
+          return (page) =>
+              malQuery.loadUserMediaListPage('manga', 'plan_to_read', page);
+        case 'Dropped Manga':
+          return (page) =>
+              malQuery.loadUserMediaListPage('manga', 'dropped', page);
+        default:
+          return null;
+      }
+    }
+
     final sectionWidgets = homeLayoutMap.entries
         .where((entry) => entry.value)
         .map((entry) => sectionMap[entry.key])
@@ -232,6 +268,18 @@ class MalHomeScreen extends BaseHomeScreen {
         mediaList: section.list,
         isLarge: section.isLarge,
         onLongPressTitle: section.onLongPressTitle,
+        onTrailingIconTap: () {
+          if (section.list?.isNotEmpty ?? false) {
+            navigateToPage(
+              context,
+              MediaListDetailScreen(
+                title: section.title,
+                mediaList: section.list!,
+                fetchMore: getFetchMore(section.pairTitle),
+              ),
+            );
+          }
+        },
         customNullListIndicator: buildNullIndicator(
           context,
           section.emptyIcon,
@@ -248,6 +296,17 @@ class MalHomeScreen extends BaseHomeScreen {
       title: getString.hiddenMedia,
       mediaList: hidden.value,
       onLongPressTitle: () => showHidden.value = !showHidden.value,
+      onTrailingIconTap: () {
+        if (hidden.value?.isNotEmpty ?? false) {
+          navigateToPage(
+            context,
+            MediaListDetailScreen(
+              title: getString.hiddenMedia,
+              mediaList: hidden.value!,
+            ),
+          );
+        }
+      },
       customNullListIndicator: buildNullIndicator(
         context,
         Icons.visibility_off,

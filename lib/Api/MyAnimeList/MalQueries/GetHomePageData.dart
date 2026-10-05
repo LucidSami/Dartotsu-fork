@@ -247,4 +247,26 @@ extension on MalQueries {
       }
     }
   }
+
+  Future<List<Media>?> _loadUserMediaListPage(
+    String type,
+    String status,
+    int page, {
+    int limit = 50,
+  }) async {
+    final offset = (page - 1) * limit;
+    final url =
+        '${MalStrings.endPoint}users/@me/${type}list?status=$status&offset=$offset&limit=$limit&$field&nsfw=1';
+    final res = await executeQuery<MediaResponse>(url);
+    if (res == null) return null;
+    res.data?.forEach((m) => m.node?.mediaType = type);
+    final mediaList = await processMediaResponse(res);
+    for (var m in mediaList) {
+      m.cameFromHome = true;
+      if (status == 'watching' || status == 'reading') {
+        m.cameFromContinue = true;
+      }
+    }
+    return mediaList;
+  }
 }
