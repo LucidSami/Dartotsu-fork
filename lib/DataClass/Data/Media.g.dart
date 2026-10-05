@@ -34,8 +34,18 @@ Media _$MediaFromJson(Map<String, dynamic> json) => Media(
       userScore: (json['userScore'] as num?)?.toInt() ?? 0,
       userRepeat: (json['userRepeat'] as num?)?.toInt() ?? 0,
       userUpdatedAt: (json['userUpdatedAt'] as num?)?.toInt(),
-      userStartedAt: json['userStartedAt'] ?? 0,
-      userCompletedAt: json['userCompletedAt'] ?? 0,
+      userStartedAt: json['userStartedAt'] == null
+          ? null
+          : (json['userStartedAt'] is Map<String, dynamic>
+              ? FuzzyDate.fromJson(
+                  json['userStartedAt'] as Map<String, dynamic>)
+              : null),
+      userCompletedAt: json['userCompletedAt'] == null
+          ? null
+          : (json['userCompletedAt'] is Map<String, dynamic>
+              ? FuzzyDate.fromJson(
+                  json['userCompletedAt'] as Map<String, dynamic>)
+              : null),
       inCustomListsOf: (json['inCustomListsOf'] as Map<String, dynamic>?)?.map(
         (k, e) => MapEntry(k, e as bool),
       ),
@@ -94,8 +104,9 @@ Media _$MediaFromJson(Map<String, dynamic> json) => Media(
       crunchySlug: json['crunchySlug'] as String?,
       nameMAL: json['nameMAL'] as String?,
       shareLink: json['shareLink'] as String?,
-      settings:
-          MediaSettings.fromJson(json['settings'] as Map<String, dynamic>),
+      settings: json['settings'] == null
+          ? null
+          : MediaSettings.fromJson(json['settings'] as Map<String, dynamic>),
       streamingEpisodes: (json['streamingEpisodes'] as List<dynamic>?)
           ?.map((e) => anilistApi.MediaStreamingEpisode.fromJson(
               e as Map<String, dynamic>))
@@ -135,8 +146,8 @@ Map<String, dynamic> _$MediaToJson(Media instance) => <String, dynamic>{
       'userScore': instance.userScore,
       'userRepeat': instance.userRepeat,
       'userUpdatedAt': instance.userUpdatedAt,
-      'userStartedAt': instance.userStartedAt,
-      'userCompletedAt': instance.userCompletedAt,
+      'userStartedAt': instance.userStartedAt?.toJson(),
+      'userCompletedAt': instance.userCompletedAt?.toJson(),
       'inCustomListsOf': instance.inCustomListsOf,
       'userFavOrder': instance.userFavOrder,
       'status': instance.status,

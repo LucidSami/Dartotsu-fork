@@ -48,7 +48,8 @@ class AnilistHomeScreen extends BaseHomeScreen {
       await getUserId();
       await setListImages();
       await loadList(force: force);
-    } catch (e) {
+    } catch (e, s) {
+      debugPrint("Error in Anilist loadAll: $e\n$s");
       if (animeContinue.value == null) {
         snackString("AniList API is down or unreachable");
         _setMediaList({});
@@ -66,6 +67,10 @@ class AnilistHomeScreen extends BaseHomeScreen {
 
   Future<void> loadList({bool force = false}) async {
     try {
+      if (Anilist.token.isNotEmpty &&
+          (Anilist.userid == null || Anilist.userid! <= 0)) {
+        await getUserId();
+      }
       final res = await Anilist.query!.initHomePage(force: force);
       if (res != null && res.isNotEmpty) {
         _setMediaList(res);
@@ -73,7 +78,8 @@ class AnilistHomeScreen extends BaseHomeScreen {
         snackString("AniList API is down or unreachable");
         _setMediaList({});
       }
-    } catch (e) {
+    } catch (e, s) {
+      debugPrint("Error in Anilist loadList: $e\n$s");
       if (animeContinue.value == null) {
         snackString("AniList API is down or unreachable");
         _setMediaList({});
