@@ -18,14 +18,13 @@ extension on MalQueries {
   }
 
   Future<Map<String, List<Media>>> _getAnimeList({bool force = false}) async {
-    if (!force) {
-      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_anime_page');
-      if (cached != null) {
-        try {
-          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
-        } catch (_) {}
-      }
+    final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_anime_page');
+    Map<String, List<Media>>? cachedMap;
+    if (cached != null) {
+      try {
+        cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+        if (!force && cachedMap.values.any((items) => items.isNotEmpty)) return cachedMap;
+      } catch (_) {}
     }
 
     final list = <String, List<Media>>{};
@@ -39,9 +38,8 @@ extension on MalQueries {
       final trendingUrl =
           '${MalStrings.endPoint}anime/season/$year/$season?limit=15&offset=1&sort=anime_num_list_users&$field';
 
-      final Map<String, String> queries = {
-        'popularAnime': popularUrl,
-        'trendingAnime': trendingUrl,
+      final animeLayout = Map<dynamic, dynamic>.from(loadData(PrefName.malAnimeLayout));
+      final Map<String, String> optionalQueries = {
         'topAiring':
             '${MalStrings.endPoint}anime/ranking?offset=0&ranking_type=airing&limit=50&$field',
         'trendingMovies':
@@ -52,17 +50,42 @@ extension on MalQueries {
             '${MalStrings.endPoint}anime/ranking?offset=0&ranking_type=favorite&limit=50&$field',
       };
 
+      final Map<String, String> layoutTitles = {
+        'topAiring': 'Top Airing',
+        'trendingMovies': 'Trending Movies',
+        'topRatedSeries': 'Top Rated Series',
+        'mostFavouriteSeries': 'Most Favourite Series',
+      };
+
+      final Map<String, String> queries = {
+        'popularAnime': popularUrl,
+        'trendingAnime': trendingUrl,
+      };
+
+      for (var entry in optionalQueries.entries) {
+        final title = layoutTitles[entry.key];
+        if (title != null && (animeLayout[title] ?? true) == true) {
+          queries[entry.key] = entry.value;
+        }
+      }
+
       for (var entry in queries.entries) {
         try {
           final mediaRes = await executeQuery<MediaResponse>(entry.value);
           if (mediaRes != null) {
             list[entry.key] = await processMediaResponse(mediaRes);
+          } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+            list[entry.key] = cachedMap[entry.key]!;
           } else {
             list[entry.key] = [];
           }
         } catch (e) {
           debugPrint("Error fetching ${entry.key}: $e");
-          list[entry.key] = [];
+          if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+            list[entry.key] = cachedMap[entry.key]!;
+          } else {
+            list[entry.key] = [];
+          }
         }
       }
 
@@ -75,31 +98,26 @@ extension on MalQueries {
             ttl: const Duration(minutes: 15),
           );
         } catch (_) {}
-      } else {
-        // Fallback to cache if all queries failed or throttled
-        final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_anime_page');
-        if (cached != null) {
-          try {
-            final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-            if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
-          } catch (_) {}
-        }
+      } else if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+        return cachedMap;
       }
     } catch (e) {
       Logger.log('Error in _getAnimeList: $e');
+      if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+        return cachedMap;
+      }
     }
     return list;
   }
 
   Future<Map<String, List<Media>>> _getMangaList({bool force = false}) async {
-    if (!force) {
-      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_manga_page');
-      if (cached != null) {
-        try {
-          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
-        } catch (_) {}
-      }
+    final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_manga_page');
+    Map<String, List<Media>>? cachedMap;
+    if (cached != null) {
+      try {
+        cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+        if (!force && cachedMap.values.any((items) => items.isNotEmpty)) return cachedMap;
+      } catch (_) {}
     }
 
     final list = <String, List<Media>>{};
@@ -109,9 +127,8 @@ extension on MalQueries {
       final trendingUrl =
           '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=manga&limit=12&$field';
 
-      final Map<String, String> queries = {
-        'popularManga': popularUrl,
-        'trendingManga': trendingUrl,
+      final mangaLayout = Map<dynamic, dynamic>.from(loadData(PrefName.malMangaLayout));
+      final Map<String, String> optionalQueries = {
         'trendingManhwa':
             '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=manhwa&limit=50&$field',
         'trendingNovels':
@@ -122,18 +139,53 @@ extension on MalQueries {
             '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=favorite&limit=50&$field',
       };
 
+      final Map<String, String> layoutTitles = {
+        'trendingManhwa': 'Trending Manhwa',
+        'trendingNovels': 'Trending Novels',
+        'topRatedManga': 'Top Rated Manga',
+        'mostFavouriteManga': 'Most Favourite Manga',
+      };
+
+      final Map<String, String> queries = {
+        'popularManga': popularUrl,
+      };
+
+      for (var entry in optionalQueries.entries) {
+        final title = layoutTitles[entry.key];
+        if (title != null && (mangaLayout[title] ?? true) == true) {
+          queries[entry.key] = entry.value;
+        }
+      }
+
+      // If topRatedManga is not requested, query trendingManga separately; otherwise derive it from topRatedManga
+      final shouldDeriveTrending = queries.containsKey('topRatedManga');
+      if (!shouldDeriveTrending) {
+        queries['trendingManga'] = trendingUrl;
+      }
+
       for (var entry in queries.entries) {
         try {
           final mediaRes = await executeQuery<MediaResponse>(entry.value);
           if (mediaRes != null) {
             list[entry.key] = await processMediaResponse(mediaRes);
+          } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+            list[entry.key] = cachedMap[entry.key]!;
           } else {
             list[entry.key] = [];
           }
         } catch (e) {
           debugPrint("Error fetching ${entry.key}: $e");
-          list[entry.key] = [];
+          if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+            list[entry.key] = cachedMap[entry.key]!;
+          } else {
+            list[entry.key] = [];
+          }
         }
+      }
+
+      // Reuse topRatedManga for trendingManga to save a duplicate network query
+      if (shouldDeriveTrending) {
+        list['trendingManga'] = (list['topRatedManga'] ?? []).take(12).toList();
       }
 
       final hasValidData = list.values.any((items) => items.isNotEmpty);
@@ -145,18 +197,14 @@ extension on MalQueries {
             ttl: const Duration(minutes: 15),
           );
         } catch (_) {}
-      } else {
-        // Fallback to cache if all queries failed or throttled
-        final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_manga_page');
-        if (cached != null) {
-          try {
-            final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-            if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
-          } catch (_) {}
-        }
+      } else if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+        return cachedMap;
       }
     } catch (e) {
       Logger.log('Error in _getMangaList: $e');
+      if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+        return cachedMap;
+      }
     }
     return list;
   }

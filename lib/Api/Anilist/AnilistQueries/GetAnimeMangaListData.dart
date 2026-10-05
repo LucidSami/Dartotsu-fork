@@ -2,16 +2,13 @@ part of '../AnilistQueries.dart';
 
 extension on AnilistQueries {
   Future<Map<String, List<Media>>> _getAnimeList({bool force = false}) async {
-    if (!force) {
-      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('anilist_anime_page');
-      if (cached != null) {
-        try {
-          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.isNotEmpty) return decoded;
-        } catch (_) {}
-      }
-    } else {
-      ApiCacheManager.instance.invalidate('anilist_anime_page');
+    final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('anilist_anime_page');
+    Map<String, List<Media>>? cachedMap;
+    if (cached != null) {
+      try {
+        cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+        if (!force && cachedMap.values.any((items) => items.isNotEmpty)) return cachedMap;
+      } catch (_) {}
     }
 
     final list = <String, List<Media>>{};
@@ -40,7 +37,7 @@ extension on AnilistQueries {
           await _mediaList(animeList?.data?.trendingAnime),
     ];
     await Future.wait(tasks.map((task) => task()));
-    if (list.isNotEmpty) {
+    if (list.values.any((items) => items.isNotEmpty)) {
       try {
         ApiCacheManager.instance.set(
           'anilist_anime_page',
@@ -48,21 +45,20 @@ extension on AnilistQueries {
           ttl: const Duration(minutes: 15),
         );
       } catch (_) {}
+    } else if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+      return cachedMap;
     }
     return list;
   }
 
   Future<Map<String, List<Media>>> _getMangaList({bool force = false}) async {
-    if (!force) {
-      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('anilist_manga_page');
-      if (cached != null) {
-        try {
-          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.isNotEmpty) return decoded;
-        } catch (_) {}
-      }
-    } else {
-      ApiCacheManager.instance.invalidate('anilist_manga_page');
+    final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('anilist_manga_page');
+    Map<String, List<Media>>? cachedMap;
+    if (cached != null) {
+      try {
+        cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+        if (!force && cachedMap.values.any((items) => items.isNotEmpty)) return cachedMap;
+      } catch (_) {}
     }
 
     final list = <String, List<Media>>{};
@@ -92,7 +88,7 @@ extension on AnilistQueries {
     ];
     await Future.wait(tasks.map((task) => task()));
 
-    if (list.isNotEmpty) {
+    if (list.values.any((items) => items.isNotEmpty)) {
       try {
         ApiCacheManager.instance.set(
           'anilist_manga_page',
@@ -100,6 +96,8 @@ extension on AnilistQueries {
           ttl: const Duration(minutes: 15),
         );
       } catch (_) {}
+    } else if (cachedMap != null && cachedMap.values.any((items) => items.isNotEmpty)) {
+      return cachedMap;
     }
 
     return list;
@@ -283,10 +281,23 @@ String _buildQueryString(String sort, String type,
         userPreferred
       } 
       mediaListEntry{
+        id
         progress 
         private 
         score(format:POINT_100) 
         status
+        notes
+        repeat
+        startedAt {
+          year
+          month
+          day
+        }
+        completedAt {
+          year
+          month
+          day
+        }
       }
     }
   }""";
@@ -329,10 +340,23 @@ String _recentAnimeUpdates(int page) {
           userPreferred
         } 
         mediaListEntry{
+          id
           progress 
           private 
           score(format:POINT_100) 
           status
+          notes
+          repeat
+          startedAt {
+            year
+            month
+            day
+          }
+          completedAt {
+            year
+            month
+            day
+          }
         }
       }
     }

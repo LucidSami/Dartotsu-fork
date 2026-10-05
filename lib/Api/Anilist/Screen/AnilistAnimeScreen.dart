@@ -33,7 +33,13 @@ class AnilistAnimeScreen extends BaseAnimeScreen {
 
   @override
   Future<void> loadAll({bool force = false}) async {
-    resetPageData();
+    if (animePopular.value == null || animePopular.value!.isEmpty) {
+      resetPageData();
+    } else {
+      page = 1;
+      loadMore.value = true;
+      canLoadMore.value = true;
+    }
     try {
       await getUserId();
       final list = await Anilist.query!.getAnimeList(force: force);

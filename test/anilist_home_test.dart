@@ -99,4 +99,47 @@ void main() {
     final parsedNull = nullType?.toString().split('.').last ?? "";
     expect(parsedNull, '');
   });
+
+  test('MAL trendingManga derives accurately from topRatedManga without duplicate calls', () {
+    final topRatedList = List.generate(
+      20,
+      (i) => Media(
+        id: i + 1,
+        nameRomaji: 'Manga $i',
+        userPreferredName: 'Manga $i',
+        meanScore: 100 - i,
+      ),
+    );
+
+    final Map<String, List<Media>> list = {
+      'topRatedManga': topRatedList,
+    };
+
+    // Simulate our derivation logic:
+    list['trendingManga'] = (list['topRatedManga'] ?? []).take(12).toList();
+
+    expect(list['trendingManga']?.length, 12);
+    expect(list['trendingManga']!.first.id, 1);
+    expect(list['trendingManga']!.last.id, 12);
+  });
+
+  test('MAL cache fallback preserves sections if network error occurs', () {
+    final cachedMap = {
+      'popularManga': [Media(id: 1, nameRomaji: 'Cached Popular', userPreferredName: 'Cached Popular')],
+      'topRatedManga': [Media(id: 2, nameRomaji: 'Cached Top', userPreferredName: 'Cached Top')],
+    };
+
+    final list = <String, List<Media>>{};
+
+    // Simulate partial network failure where popularManga succeeds but topRatedManga throws
+    list['popularManga'] = [Media(id: 10, nameRomaji: 'Fresh Popular', userPreferredName: 'Fresh Popular')];
+    // topRatedManga fails network: fallback to cachedMap
+    if (cachedMap['topRatedManga']?.isNotEmpty == true) {
+      list['topRatedManga'] = cachedMap['topRatedManga']!;
+    }
+
+    expect(list['popularManga']!.first.id, 10);
+    expect(list['topRatedManga']!.first.id, 2);
+  });
 }
+

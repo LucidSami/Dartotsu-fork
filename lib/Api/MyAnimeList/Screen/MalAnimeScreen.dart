@@ -27,7 +27,7 @@ class MalAnimeScreen extends BaseAnimeScreen {
     if (Mal.token.isEmpty) {
       Mal.getSavedToken();
     }
-    if (Mal.token.isNotEmpty) {
+    if (Mal.token.isNotEmpty && (Mal.userid == null || Mal.userid! <= 0)) {
       await (Mal.query as MalQueries?)?.getUserData();
     }
   }

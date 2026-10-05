@@ -145,6 +145,7 @@ extension on AnilistQueries {
                 {
                   Page {
                     mediaList(userId: ${Anilist.userid}, mediaId_in: $missingIds) {
+                      id
                       mediaId
                       status
                       progress
@@ -163,6 +164,7 @@ extension on AnilistQueries {
                 for (final entry in entries) {
                   final match = returnArray.firstWhereOrNull((m) => m.id == entry.mediaId);
                   if (match != null) {
+                    match.userListId = entry.id;
                     match.userStatus = entry.status?.name;
                     match.userProgress = entry.progress;
                     match.userScore = entry.score?.toInt() ?? 0;
@@ -265,13 +267,30 @@ extension on AnilistQueries {
             ),
       };
 
+      final activeEntries = homeLayoutMap.entries
+          .where((entry) =>
+              (entry.value == true) && processMappings.containsKey(entry.key))
+          .toList();
+
+      final nonFavEntries =
+          activeEntries.where((e) => !e.key.startsWith('Favourite')).toList();
+      final favEntries =
+          activeEntries.where((e) => e.key.startsWith('Favourite')).toList();
+
       await Future.wait(
-        homeLayoutMap.entries
-            .where((entry) =>
-                (entry.value == true) && processMappings.containsKey(entry.key))
-            .map((entry) => Future.sync(() => processMappings[entry.key]!()).catchError((err, st) {
-                  debugPrint("Error processing home section '${entry.key}': $err\n$st");
-                })),
+        nonFavEntries.map((entry) =>
+            Future.sync(() => processMappings[entry.key]!()).catchError((err, st) {
+              debugPrint(
+                  "Error processing home section '${entry.key}': $err\n$st");
+            })),
+      );
+
+      await Future.wait(
+        favEntries.map((entry) =>
+            Future.sync(() => processMappings[entry.key]!()).catchError((err, st) {
+              debugPrint(
+                  "Error processing home section '${entry.key}': $err\n$st");
+            })),
       );
 
       for (var list in returnMap.values) {
@@ -360,10 +379,15 @@ String _recommendationQuery() => '''
         idMal 
         isAdult 
         mediaListEntry { 
+          id
           progress 
           private 
           score(format: POINT_100) 
           status 
+          notes
+          repeat
+          startedAt { year month day }
+          completedAt { year month day }
         } 
         chapters 
         isFavourite 
@@ -388,13 +412,28 @@ String _recommendationPlannedQuery(String type) => '''
   MediaListCollection(userId: ${Anilist.userid}, type: $type, status: PLANNING${type == "ANIME" ? ", sort: MEDIA_POPULARITY_DESC" : ""}) { 
     lists { 
       entries { 
+        id
+        status
+        score(format: POINT_100)
+        progress
+        repeat
+        private
+        notes
+        startedAt { year month day }
+        completedAt { year month day }
+        updatedAt
         media { 
           id 
           mediaListEntry { 
+            id
             progress 
             private 
             score(format: POINT_100) 
             status 
+            notes
+            repeat
+            startedAt { year month day }
+            completedAt { year month day }
           } 
           idMal 
           type 
@@ -420,10 +459,16 @@ String _continueMediaQuery(String type, String status) => '''
   MediaListCollection(userId: ${Anilist.userid}, type: $type, status: $status, sort: UPDATED_TIME) { 
     lists { 
       entries { 
-        progress 
-        private 
-        score(format: POINT_100) 
+        id
         status 
+        score(format: POINT_100) 
+        progress 
+        repeat
+        private 
+        notes
+        startedAt { year month day }
+        completedAt { year month day }
+        updatedAt
         media { 
           id 
           idMal 
@@ -458,10 +503,15 @@ String _favMediaQuery(bool anime, int page) => '''
             idMal 
             isAdult 
             mediaListEntry { 
+              id
               progress 
               private 
               score(format: POINT_100) 
               status 
+              notes
+              repeat
+              startedAt { year month day }
+              completedAt { year month day }
             } 
             chapters 
             isFavourite 

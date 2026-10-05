@@ -32,7 +32,13 @@ class AnilistMangaScreen extends BaseMangaScreen {
 
   @override
   Future<void> loadAll({bool force = false}) async {
-    resetPageData();
+    if (mangaPopular.value == null || mangaPopular.value!.isEmpty) {
+      resetPageData();
+    } else {
+      page = 1;
+      loadMore.value = true;
+      canLoadMore.value = true;
+    }
     try {
       await getUserId();
       final list = await Anilist.query!.getMangaList(force: force);

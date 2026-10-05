@@ -64,7 +64,7 @@ abstract class BaseMediaScreen extends GetxController {
     final live = Refresh.getOrPut(refreshID, false);
     ever(live, (shouldRefresh) async {
       if (shouldRefresh) {
-        await refreshData(force: true);
+        await refreshData(force: initialLoad);
       }
     });
     live.value = true;

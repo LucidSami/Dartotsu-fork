@@ -141,9 +141,12 @@ class AnilistController extends BaseServiceData {
     if (cachedId > 0) {
       userid = cachedId;
     }
+    if (cachedUsername.isNotEmpty && cachedId > 0) {
+      isInitialized.value = true;
+    }
 
     query?.getGenresAndTags();
-    if (token.isNotEmpty) query?.getUserData();
+    if (token.isNotEmpty && !isInitialized.value) query?.getUserData();
 
     return token.isNotEmpty;
   }

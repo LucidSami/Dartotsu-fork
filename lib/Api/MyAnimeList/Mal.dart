@@ -99,8 +99,11 @@ class MalController extends BaseServiceData {
     }
     final cachedChapters = loadData(PrefName.malChaptersRead);
     chapterRead = cachedChapters >= 0 ? cachedChapters : 0;
+    if (cachedUsername.isNotEmpty && cachedId > 0) {
+      isInitialized.value = true;
+    }
 
-    if (token.isNotEmpty) {
+    if (token.isNotEmpty && !isInitialized.value) {
       getToken().then((m) {
         query?.getUserData();
       });
@@ -406,7 +409,7 @@ class MalController extends BaseServiceData {
 
 class RateLimiter {
   static const int maxRequestsPerMinute = 50;
-  static const int minIntervalMs = 380;
+  static const int minIntervalMs = 420;
 
   DateTime _lastRequestEndTime = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _cooldownUntil;

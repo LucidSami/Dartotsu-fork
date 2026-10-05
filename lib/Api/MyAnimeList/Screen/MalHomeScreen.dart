@@ -34,7 +34,7 @@ class MalHomeScreen extends BaseHomeScreen {
     if (Mal.token.isEmpty) {
       Mal.getSavedToken();
     }
-    if (Mal.token.isNotEmpty) {
+    if (Mal.token.isNotEmpty && (force || Mal.userid == null || Mal.userid! <= 0)) {
       await (Mal.query as MalQueries?)?.getUserData(force: force);
     }
   }
