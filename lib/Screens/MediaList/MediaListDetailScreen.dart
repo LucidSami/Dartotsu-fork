@@ -8,7 +8,7 @@ import '../../Widgets/ScrollConfig.dart';
 class MediaListDetailScreen extends StatefulWidget {
   final String title;
   final List<Media> mediaList;
-  final Future<List<Media>> Function(int page)? fetchMore;
+  final Future<List<Media>?> Function(int page)? fetchMore;
 
   const MediaListDetailScreen({
     super.key,
@@ -76,18 +76,23 @@ class _MediaListDetailScreenState extends State<MediaListDetailScreen> {
       final newItems = await widget.fetchMore!(nextPage);
       if (mounted) {
         setState(() {
-          _currentPage = nextPage;
-          if (newItems.isEmpty) {
-            _hasMore = false;
-          } else {
-            // Deduplicate by id
-            final existingIds = _list.map((m) => m.id).toSet();
-            final unique = newItems.where((m) => !existingIds.contains(m.id)).toList();
-            if (unique.isEmpty) {
+          if (newItems != null) {
+            if (newItems.isEmpty) {
               _hasMore = false;
             } else {
-              _list.addAll(unique);
+              _currentPage = nextPage;
+              // Deduplicate by id
+              final existingIds = _list.map((m) => m.id).toSet();
+              final unique = newItems.where((m) => !existingIds.contains(m.id)).toList();
+              if (unique.isEmpty) {
+                _hasMore = false;
+              } else {
+                _list.addAll(unique);
+              }
             }
+          } else {
+            // Null returned (e.g. rate limit/timeout): allow retry on scroll without locking _hasMore
+            _hasMore = true;
           }
         });
       }

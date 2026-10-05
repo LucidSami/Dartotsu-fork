@@ -86,15 +86,17 @@ class MalHomeScreen extends BaseHomeScreen {
     }
     try {
       final res = await Mal.query!.initHomePage(force: force);
-      if (res != null) {
+      if (res != null && res.isNotEmpty) {
         _setMediaList(res);
-      } else {
+      } else if (animeContinue.value == null) {
         snackString("MyAnimeList API is down or unreachable");
         _setMediaList({});
       }
     } catch (e) {
-      snackString("MyAnimeList API is down or unreachable");
-      _setMediaList({});
+      if (animeContinue.value == null) {
+        snackString("MyAnimeList API is down or unreachable");
+        _setMediaList({});
+      }
     }
   }
 

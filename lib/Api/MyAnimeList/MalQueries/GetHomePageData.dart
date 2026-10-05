@@ -11,11 +11,11 @@ extension on MalQueries {
         if (cached != null) {
           try {
             final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-            if (decoded.isNotEmpty) return decoded;
+            if (decoded.entries.any((e) => e.key != 'hidden' && e.value.isNotEmpty)) {
+              return decoded;
+            }
           } catch (_) {}
         }
-      } else {
-        ApiCacheManager.instance.invalidate('mal_home_page');
       }
 
       final animeUrl =
@@ -158,7 +158,8 @@ extension on MalQueries {
           }
         }
       }
-      if (returnMap.isNotEmpty) {
+      final hasValidHomeData = returnMap.entries.any((e) => e.key != 'hidden' && e.value.isNotEmpty);
+      if (hasValidHomeData) {
         try {
           ApiCacheManager.instance.set(
             'mal_home_page',
@@ -166,10 +167,30 @@ extension on MalQueries {
             ttl: const Duration(minutes: 30),
           );
         } catch (_) {}
+      } else {
+        // Fallback to cache if network returned no valid entries
+        final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_home_page');
+        if (cached != null) {
+          try {
+            final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+            if (decoded.entries.any((e) => e.key != 'hidden' && e.value.isNotEmpty)) {
+              return decoded;
+            }
+          } catch (_) {}
+        }
       }
       return returnMap;
     } catch (e) {
       Logger.log('Error in initHomePage $e');
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_home_page');
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.entries.any((e) => e.key != 'hidden' && e.value.isNotEmpty)) {
+            return decoded;
+          }
+        } catch (_) {}
+      }
       return {};
     }
   }

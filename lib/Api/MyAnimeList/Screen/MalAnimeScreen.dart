@@ -34,25 +34,37 @@ class MalAnimeScreen extends BaseAnimeScreen {
 
   @override
   Future<void> loadAll({bool force = false}) async {
-    resetPageData();
+    if (animePopular.value == null || animePopular.value!.isEmpty) {
+      resetPageData();
+    } else {
+      page = 1;
+      loadMore.value = true;
+      canLoadMore.value = true;
+    }
     await getUserId();
     try {
       final list = await Mal.query!.getAnimeList(force: force);
-      updated.value = list["topAiring"] ?? [];
-      popularMovies.value = list["trendingMovies"] ?? [];
-      topRatedSeries.value = list["topRatedSeries"] ?? [];
-      mostFavSeries.value = list["mostFavouriteSeries"] ?? [];
-      animePopular.value = list["popularAnime"] ?? [];
-      trending.value = list["trendingAnime"] ?? [];
+      if (list["topAiring"]?.isNotEmpty ?? false) updated.value = list["topAiring"];
+      if (list["trendingMovies"]?.isNotEmpty ?? false) popularMovies.value = list["trendingMovies"];
+      if (list["topRatedSeries"]?.isNotEmpty ?? false) topRatedSeries.value = list["topRatedSeries"];
+      if (list["mostFavouriteSeries"]?.isNotEmpty ?? false) mostFavSeries.value = list["mostFavouriteSeries"];
+      if (list["popularAnime"]?.isNotEmpty ?? false) animePopular.value = list["popularAnime"];
+      if (list["trendingAnime"]?.isNotEmpty ?? false) trending.value = list["trendingAnime"];
+      updated.value ??= [];
+      popularMovies.value ??= [];
+      topRatedSeries.value ??= [];
+      mostFavSeries.value ??= [];
+      animePopular.value ??= [];
+      trending.value ??= [];
     } catch (e) {
       debugPrint("Error loading MAL anime list: $e");
       snackString("MyAnimeList API is down or unreachable");
-      updated.value = [];
-      popularMovies.value = [];
-      topRatedSeries.value = [];
-      mostFavSeries.value = [];
-      animePopular.value = [];
-      trending.value = [];
+      updated.value ??= [];
+      popularMovies.value ??= [];
+      topRatedSeries.value ??= [];
+      mostFavSeries.value ??= [];
+      animePopular.value ??= [];
+      trending.value ??= [];
     }
   }
 
@@ -67,18 +79,30 @@ class MalAnimeScreen extends BaseAnimeScreen {
     topRatedSeries.value = null;
     mostFavSeries.value = null;
     loadMore.value = true;
+    canLoadMore.value = true;
     page = 1;
   }
 
   @override
   Future<void>? loadNextPage() async {
-    var result = await (Mal.query as MalQueries?)?.loadNextPage('anime', page);
-    page++;
+    final nextPage = page + 1;
+    var result = await (Mal.query as MalQueries?)?.loadNextPage('anime', nextPage);
     if (result != null) {
-      canLoadMore.value = true;
-      animePopular.value = [...?animePopular.value, ...result];
+      if (result.isNotEmpty) {
+        page = nextPage;
+        canLoadMore.value = true;
+        final existingIds = (animePopular.value ?? []).map((m) => m.id).toSet();
+        final unique = result.where((m) => !existingIds.contains(m.id)).toList();
+        if (unique.isNotEmpty) {
+          animePopular.value = [...?animePopular.value, ...unique];
+        } else {
+          canLoadMore.value = false;
+        }
+      } else {
+        canLoadMore.value = false;
+      }
     } else {
-      canLoadMore.value = false;
+      canLoadMore.value = true;
     }
     loadMore.value = true;
     return;
@@ -127,7 +151,7 @@ class MalAnimeScreen extends BaseAnimeScreen {
     final sectionMap = {
       for (var section in mediaSections) section.pairTitle: section
     };
-    Future<List<Media>> Function(int page)? getFetchMore(String pairTitle) {
+    Future<List<Media>?> Function(int page)? getFetchMore(String pairTitle) {
       final malQuery = Mal.query as MalQueries?;
       if (malQuery == null) return null;
       switch (pairTitle) {
@@ -183,11 +207,8 @@ class MalAnimeScreen extends BaseAnimeScreen {
                 MediaListDetailScreen(
                   title: getString.popular(getString.anime),
                   mediaList: animePopular.value!,
-                  fetchMore: (page) async {
-                    final res = await (Mal.query as MalQueries?)
-                        ?.loadRankingPage('anime', 'bypopularity', page);
-                    return res ?? [];
-                  },
+                  fetchMore: (page) async =>
+                      await (Mal.query as MalQueries?)?.loadRankingPage('anime', 'bypopularity', page),
                 ),
               );
             }

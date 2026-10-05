@@ -54,11 +54,20 @@ class MalSearchScreen extends BaseSearchScreen {
 
   @override
   Future<void>? loadNextPage() async {
-    searchResults.value.page = (searchResults.value.page ?? 1) + 1;
-    var res = await Mal.query?.search(searchResults.value);
+    final nextPage = (searchResults.value.page ?? 1) + 1;
+    final currentSearch = searchResults.value;
+    currentSearch.page = nextPage;
+    var res = await Mal.query?.search(currentSearch);
     if (res != null) {
-      searchResult.value = [...searchResult.value ?? [], ...results(res) ?? []];
+      searchResults.value = res;
+      final newItems = results(res) ?? [];
+      if (newItems.isNotEmpty) {
+        searchResult.value = [...searchResult.value ?? [], ...newItems];
+      }
       canLoadMore.value = res.hasNextPage ?? false;
+    } else {
+      searchResults.value.page = nextPage - 1;
+      canLoadMore.value = true;
     }
     loadMore.value = true;
   }

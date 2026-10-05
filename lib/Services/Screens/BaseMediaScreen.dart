@@ -25,10 +25,19 @@ abstract class BaseMediaScreen extends GetxController {
   Future<void>? loadNextPage() => null;
   Future<void> refreshData({bool force = false}) async {
     if (!running.value) {
-      while (!running.value) {
+      // If a previous load is in progress, wait up to 4 seconds for it to complete
+      int waitMs = 0;
+      while (!running.value && waitMs < 4000) {
         await Future.delayed(const Duration(milliseconds: 100));
+        waitMs += 100;
       }
-      return;
+      if (!running.value) {
+        // Force recovery if previous load was stuck
+        debugPrint("BaseMediaScreen: Forcing recovery from stuck load for refreshID: $refreshID");
+        running.value = true;
+      }
+      // If this was not a user-initiated forced refresh, previous load suffices
+      if (!force) return;
     }
     running.value = false;
     try {

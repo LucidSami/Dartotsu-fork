@@ -59,10 +59,10 @@ class MalQueries extends Queries {
   Future<List<Media>> getTrending({String? year, String? season}) =>
       _getTrending(year: year, season: season);
 
-  Future<List<Media>> loadNextPage(String type, int page) =>
+  Future<List<Media>?> loadNextPage(String type, int page) =>
       _loadNextPage(type, page);
 
-  Future<List<Media>> loadRankingPage(
+  Future<List<Media>?> loadRankingPage(
     String type,
     String rankingType,
     int page, {

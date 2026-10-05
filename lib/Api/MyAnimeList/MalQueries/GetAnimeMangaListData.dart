@@ -23,11 +23,9 @@ extension on MalQueries {
       if (cached != null) {
         try {
           final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.isNotEmpty) return decoded;
+          if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
         } catch (_) {}
       }
-    } else {
-      ApiCacheManager.instance.invalidate('mal_anime_page');
     }
 
     final list = <String, List<Media>>{};
@@ -41,7 +39,9 @@ extension on MalQueries {
       final trendingUrl =
           '${MalStrings.endPoint}anime/season/$year/$season?limit=15&offset=1&sort=anime_num_list_users&$field';
 
-      final Map<String, String> queryMappings = {
+      final Map<String, String> queries = {
+        'popularAnime': popularUrl,
+        'trendingAnime': trendingUrl,
         'topAiring':
             '${MalStrings.endPoint}anime/ranking?offset=0&ranking_type=airing&limit=50&$field',
         'trendingMovies':
@@ -52,27 +52,22 @@ extension on MalQueries {
             '${MalStrings.endPoint}anime/ranking?offset=0&ranking_type=favorite&limit=50&$field',
       };
 
-      final tasks = <String, Future<MediaResponse?>>{
-        'popularAnime': executeQuery<MediaResponse>(popularUrl),
-        'trendingAnime': executeQuery<MediaResponse>(trendingUrl),
-      };
-
-      queryMappings.forEach((key, url) {
-        tasks[key] = executeQuery<MediaResponse>(url);
-      });
-
-      final taskResults = await Future.wait(tasks.values);
-      final keys = tasks.keys.toList();
-
-      for (var i = 0; i < keys.length; i++) {
-        final mediaRes = taskResults[i];
-        if (mediaRes != null) {
-          list[keys[i]] = await processMediaResponse(mediaRes);
-        } else {
-          list[keys[i]] = [];
+      for (var entry in queries.entries) {
+        try {
+          final mediaRes = await executeQuery<MediaResponse>(entry.value);
+          if (mediaRes != null) {
+            list[entry.key] = await processMediaResponse(mediaRes);
+          } else {
+            list[entry.key] = [];
+          }
+        } catch (e) {
+          debugPrint("Error fetching ${entry.key}: $e");
+          list[entry.key] = [];
         }
       }
-      if (list.isNotEmpty) {
+
+      final hasValidData = list.values.any((items) => items.isNotEmpty);
+      if (hasValidData) {
         try {
           ApiCacheManager.instance.set(
             'mal_anime_page',
@@ -80,6 +75,15 @@ extension on MalQueries {
             ttl: const Duration(minutes: 15),
           );
         } catch (_) {}
+      } else {
+        // Fallback to cache if all queries failed or throttled
+        final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_anime_page');
+        if (cached != null) {
+          try {
+            final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+            if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
+          } catch (_) {}
+        }
       }
     } catch (e) {
       Logger.log('Error in _getAnimeList: $e');
@@ -93,11 +97,9 @@ extension on MalQueries {
       if (cached != null) {
         try {
           final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
-          if (decoded.isNotEmpty) return decoded;
+          if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
         } catch (_) {}
       }
-    } else {
-      ApiCacheManager.instance.invalidate('mal_manga_page');
     }
 
     final list = <String, List<Media>>{};
@@ -107,7 +109,9 @@ extension on MalQueries {
       final trendingUrl =
           '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=manga&limit=12&$field';
 
-      final Map<String, String> queryMappings = {
+      final Map<String, String> queries = {
+        'popularManga': popularUrl,
+        'trendingManga': trendingUrl,
         'trendingManhwa':
             '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=manhwa&limit=50&$field',
         'trendingNovels':
@@ -118,27 +122,22 @@ extension on MalQueries {
             '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=favorite&limit=50&$field',
       };
 
-      final tasks = <String, Future<MediaResponse?>>{
-        'popularManga': executeQuery<MediaResponse>(popularUrl),
-        'trendingManga': executeQuery<MediaResponse>(trendingUrl),
-      };
-
-      queryMappings.forEach((key, url) {
-        tasks[key] = executeQuery<MediaResponse>(url);
-      });
-
-      final taskResults = await Future.wait(tasks.values);
-      final keys = tasks.keys.toList();
-
-      for (var i = 0; i < keys.length; i++) {
-        final mediaRes = taskResults[i];
-        if (mediaRes != null) {
-          list[keys[i]] = await processMediaResponse(mediaRes);
-        } else {
-          list[keys[i]] = [];
+      for (var entry in queries.entries) {
+        try {
+          final mediaRes = await executeQuery<MediaResponse>(entry.value);
+          if (mediaRes != null) {
+            list[entry.key] = await processMediaResponse(mediaRes);
+          } else {
+            list[entry.key] = [];
+          }
+        } catch (e) {
+          debugPrint("Error fetching ${entry.key}: $e");
+          list[entry.key] = [];
         }
       }
-      if (list.isNotEmpty) {
+
+      final hasValidData = list.values.any((items) => items.isNotEmpty);
+      if (hasValidData) {
         try {
           ApiCacheManager.instance.set(
             'mal_manga_page',
@@ -146,6 +145,15 @@ extension on MalQueries {
             ttl: const Duration(minutes: 15),
           );
         } catch (_) {}
+      } else {
+        // Fallback to cache if all queries failed or throttled
+        final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_manga_page');
+        if (cached != null) {
+          try {
+            final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+            if (decoded.values.any((items) => items.isNotEmpty)) return decoded;
+          } catch (_) {}
+        }
       }
     } catch (e) {
       Logger.log('Error in _getMangaList: $e');
@@ -159,24 +167,28 @@ extension on MalQueries {
         '${MalStrings.endPoint}anime/season/$year/$season?limit=15&offset=1&sort=anime_num_list_users&$field';
     var manga =
         '${MalStrings.endPoint}manga/ranking?offset=0&ranking_type=$season&limit=15&$field';
-    return await processMediaResponse(
-        await executeQuery<MediaResponse>(year != null ? anime : manga));
+    final res = await executeQuery<MediaResponse>(year != null ? anime : manga);
+    return await processMediaResponse(res);
   }
 
-  Future<List<Media>> _loadNextPage(String type, int page) async {
+  Future<List<Media>?> _loadNextPage(String type, int page) async {
     final offset = (page - 1) * 50;
-    return await processMediaResponse(await executeQuery<MediaResponse>(
-        '${MalStrings.endPoint}$type/ranking?offset=$offset&ranking_type=bypopularity&limit=50&$field'));
+    final res = await executeQuery<MediaResponse>(
+        '${MalStrings.endPoint}$type/ranking?offset=$offset&ranking_type=bypopularity&limit=50&$field');
+    if (res == null) return null;
+    return await processMediaResponse(res);
   }
 
-  Future<List<Media>> _loadRankingPage(
+  Future<List<Media>?> _loadRankingPage(
     String type,
     String rankingType,
     int page, {
     int limit = 50,
   }) async {
     final offset = (page - 1) * limit;
-    return await processMediaResponse(await executeQuery<MediaResponse>(
-        '${MalStrings.endPoint}$type/ranking?offset=$offset&ranking_type=$rankingType&limit=$limit&$field'));
+    final res = await executeQuery<MediaResponse>(
+        '${MalStrings.endPoint}$type/ranking?offset=$offset&ranking_type=$rankingType&limit=$limit&$field');
+    if (res == null) return null;
+    return await processMediaResponse(res);
   }
 }

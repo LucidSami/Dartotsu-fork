@@ -34,25 +34,37 @@ class MalMangaScreen extends BaseMangaScreen {
 
   @override
   Future<void> loadAll({bool force = false}) async {
-    resetPageData();
+    if (mangaPopular.value == null || mangaPopular.value!.isEmpty) {
+      resetPageData();
+    } else {
+      page = 1;
+      loadMore.value = true;
+      canLoadMore.value = true;
+    }
     await getUserId();
     try {
       final list = await Mal.query!.getMangaList(force: force);
-      trending.value = list["trendingManga"] ?? [];
-      mangaPopular.value = list["popularManga"] ?? [];
-      popularManhwa.value = list["trendingManhwa"] ?? [];
-      popularNovel.value = list["trendingNovels"] ?? [];
-      topRatedManga.value = list["topRatedManga"] ?? [];
-      mostFavManga.value = list["mostFavouriteManga"] ?? [];
+      if (list["trendingManga"]?.isNotEmpty ?? false) trending.value = list["trendingManga"];
+      if (list["popularManga"]?.isNotEmpty ?? false) mangaPopular.value = list["popularManga"];
+      if (list["trendingManhwa"]?.isNotEmpty ?? false) popularManhwa.value = list["trendingManhwa"];
+      if (list["trendingNovels"]?.isNotEmpty ?? false) popularNovel.value = list["trendingNovels"];
+      if (list["topRatedManga"]?.isNotEmpty ?? false) topRatedManga.value = list["topRatedManga"];
+      if (list["mostFavouriteManga"]?.isNotEmpty ?? false) mostFavManga.value = list["mostFavouriteManga"];
+      trending.value ??= [];
+      mangaPopular.value ??= [];
+      popularManhwa.value ??= [];
+      popularNovel.value ??= [];
+      topRatedManga.value ??= [];
+      mostFavManga.value ??= [];
     } catch (e) {
       debugPrint("Error loading MAL manga list: $e");
       snackString("MyAnimeList API is down or unreachable");
-      trending.value = [];
-      mangaPopular.value = [];
-      popularManhwa.value = [];
-      popularNovel.value = [];
-      topRatedManga.value = [];
-      mostFavManga.value = [];
+      trending.value ??= [];
+      mangaPopular.value ??= [];
+      popularManhwa.value ??= [];
+      popularNovel.value ??= [];
+      topRatedManga.value ??= [];
+      mostFavManga.value ??= [];
     }
   }
 
@@ -73,13 +85,24 @@ class MalMangaScreen extends BaseMangaScreen {
 
   @override
   Future<void>? loadNextPage() async {
-    var result = await (Mal.query as MalQueries?)?.loadNextPage('manga', page);
-    page++;
+    final nextPage = page + 1;
+    var result = await (Mal.query as MalQueries?)?.loadNextPage('manga', nextPage);
     if (result != null) {
-      canLoadMore.value = true;
-      mangaPopular.value = [...?mangaPopular.value, ...result];
+      if (result.isNotEmpty) {
+        page = nextPage;
+        canLoadMore.value = true;
+        final existingIds = (mangaPopular.value ?? []).map((m) => m.id).toSet();
+        final unique = result.where((m) => !existingIds.contains(m.id)).toList();
+        if (unique.isNotEmpty) {
+          mangaPopular.value = [...?mangaPopular.value, ...unique];
+        } else {
+          canLoadMore.value = false;
+        }
+      } else {
+        canLoadMore.value = false;
+      }
     } else {
-      canLoadMore.value = false;
+      canLoadMore.value = true;
     }
     loadMore.value = true;
     return;
@@ -126,7 +149,7 @@ class MalMangaScreen extends BaseMangaScreen {
     final sectionMap = {
       for (var section in mediaSections) section.pairTitle: section
     };
-    Future<List<Media>> Function(int page)? getFetchMore(String pairTitle) {
+    Future<List<Media>?> Function(int page)? getFetchMore(String pairTitle) {
       final malQuery = Mal.query as MalQueries?;
       if (malQuery == null) return null;
       switch (pairTitle) {
@@ -179,11 +202,8 @@ class MalMangaScreen extends BaseMangaScreen {
                 MediaListDetailScreen(
                   title: getString.popular(getString.manga),
                   mediaList: mangaPopular.value!,
-                  fetchMore: (page) async {
-                    final res = await (Mal.query as MalQueries?)
-                        ?.loadRankingPage('manga', 'bypopularity', page);
-                    return res ?? [];
-                  },
+                  fetchMore: (page) async =>
+                      await (Mal.query as MalQueries?)?.loadRankingPage('manga', 'bypopularity', page),
                 ),
               );
             }
