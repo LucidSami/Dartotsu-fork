@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../Api/Anilist/Anilist.dart';
 import '../Api/MyAnimeList/Mal.dart';
 import '../DataClass/Media.dart';
+import '../Functions/Function.dart';
 import '../Functions/string_extensions.dart';
 import '../Preferences/PrefManager.dart';
 
@@ -70,6 +71,17 @@ class TrackSyncManager {
       await Future.wait(futures);
     } catch (e) {
       debugPrint("TrackSyncManager sync error: $e");
+    } finally {
+      final malHomeRx = Refresh.activity[RefreshId.Mal.homePage];
+      if (malHomeRx != null) {
+        malHomeRx.value = true;
+        malHomeRx.refresh();
+      }
+      final anilistHomeRx = Refresh.activity[RefreshId.Anilist.homePage];
+      if (anilistHomeRx != null) {
+        anilistHomeRx.value = true;
+        anilistHomeRx.refresh();
+      }
     }
   }
 

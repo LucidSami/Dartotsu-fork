@@ -5,6 +5,7 @@ import 'package:dartotsu/Services/Api/Mutations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 
+import '../../Preferences/PrefManager.dart';
 import '../../Services/ApiCacheManager.dart';
 import 'Mal.dart';
 
@@ -65,6 +66,18 @@ class MalMutations extends Mutations {
       if (response != null && response.statusCode >= 200 && response.statusCode < 300) {
         media.userProgress = progress;
         media.userStatus = status;
+
+        if (isAnime) {
+          if (Mal.episodesWatched != null) {
+            Mal.episodesWatched = Mal.episodesWatched! + 1;
+            saveData(PrefName.malEpisodesWatched, Mal.episodesWatched!);
+          }
+        } else {
+          if (Mal.chapterRead != null) {
+            Mal.chapterRead = Mal.chapterRead! + 1;
+            saveData(PrefName.malChaptersRead, Mal.chapterRead!);
+          }
+        }
 
         ApiCacheManager.instance.invalidate('mal_home_page');
         if (isAnime) {

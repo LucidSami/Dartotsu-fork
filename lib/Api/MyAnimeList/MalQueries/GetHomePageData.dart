@@ -23,24 +23,40 @@ extension on MalQueries {
       final mangaUrl =
           '${MalStrings.endPoint}users/@me/mangalist?$field&limit=1000&sort=list_updated_at&nsfw=1';
 
-      final results = await Future.wait([
-        executeQuery<MediaResponse>(animeUrl, force: force),
-        executeQuery<MediaResponse>(mangaUrl, force: force),
-      ]);
+      MediaResponse? animeRes;
+      MediaResponse? mangaRes;
+      try {
+        animeRes = await executeQuery<MediaResponse>(animeUrl, force: force);
+      } catch (e) {
+        Logger.log('Error fetching MAL animelist: $e');
+      }
+      try {
+        mangaRes = await executeQuery<MediaResponse>(mangaUrl, force: force);
+      } catch (e) {
+        Logger.log('Error fetching MAL mangalist: $e');
+      }
 
-      final animeRes = results[0];
-      final mangaRes = results[1];
+      List<Media> animeProcessed = [];
+      List<Media> mangaProcessed = [];
+      if (animeRes != null) {
+        animeRes.data?.forEach((m) => m.node?.mediaType = 'anime');
+        try {
+          animeProcessed = await processMediaResponse(animeRes);
+        } catch (e) {
+          Logger.log('Error processing MAL anime response: $e');
+        }
+      }
+      if (mangaRes != null) {
+        mangaRes.data?.forEach((m) => m.node?.mediaType = 'manga');
+        try {
+          mangaProcessed = await processMediaResponse(mangaRes);
+        } catch (e) {
+          Logger.log('Error processing MAL manga response: $e');
+        }
+      }
 
-      animeRes?.data?.forEach((m) => m.node?.mediaType = 'anime');
-      mangaRes?.data?.forEach((m) => m.node?.mediaType = 'manga');
-
-      final responses = await Future.wait([
-        processMediaResponse(animeRes),
-        processMediaResponse(mangaRes),
-      ]);
-
-      var animeList = groupBy(responses[0], (m) => m.userStatus ?? 'other');
-      var mangaList = groupBy(responses[1], (m) => m.userStatus ?? 'other');
+      var animeList = groupBy(animeProcessed, (Media m) => m.userStatus ?? 'other');
+      var mangaList = groupBy(mangaProcessed, (Media m) => m.userStatus ?? 'other');
 
       final removeList = loadData(PrefName.malRemoveList);
       List<Media> removedMedia = [];
@@ -134,6 +150,7 @@ extension on MalQueries {
 
       for (var list in returnMap.values) {
         for (var media in list) {
+          media.cameFromHome = true;
           final recent = TrackSyncManager.instance.getRecentProgress(media.id) ??
               (media.idMAL != null ? TrackSyncManager.instance.getRecentProgress(media.idMAL!) : null);
           if (recent != null && (media.userProgress == null || recent > media.userProgress!)) {

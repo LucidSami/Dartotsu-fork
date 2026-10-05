@@ -6,6 +6,7 @@ part of '../media.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+// ignore: unused_element
 Media _$MediaFromJson(Map<String, dynamic> json) => Media(
       id: (json['id'] as num?)?.toInt(),
       title: json['title'] as String?,
@@ -90,6 +91,7 @@ Map<String, dynamic> _$MediaToJson(Media instance) => <String, dynamic>{
       'num_chapters': instance.numChapters,
     };
 
+// ignore: unused_element
 MyListStatus _$MyListStatusFromJson(Map<String, dynamic> json) => MyListStatus(
       status: json['status'] as String?,
       score: (json['score'] as num?)?.toInt(),

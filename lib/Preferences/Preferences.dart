@@ -163,6 +163,8 @@ class PrefName {
   static const malUserId = Pref<int>('malUserId', -1, PrefLocation.PROTECTED);
   static const malEpisodesWatched =
       Pref<int>('malEpisodesWatched', -1, PrefLocation.PROTECTED);
+  static const malChaptersRead =
+      Pref<int>('malChaptersRead', 0, PrefLocation.PROTECTED);
 
   // irrelevant
   static const Pref<List<String>> GenresList =

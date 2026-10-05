@@ -69,6 +69,11 @@ class _MediaCountdownPillState extends State<MediaCountdownPill> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.mediaInfo.cameFromContinue != true &&
+        widget.mediaInfo.cameFromHome != true) {
+      return const SizedBox.shrink();
+    }
+
     final diffSec = _getRemainingSeconds();
     if (diffSec == null || diffSec <= 0) {
       return const SizedBox.shrink();

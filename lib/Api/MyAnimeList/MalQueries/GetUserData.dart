@@ -38,7 +38,7 @@ extension on MalQueries {
       Mal.bg.value = user.picture ?? '';
       Mal.avatar.value = user.picture ?? '';
       Mal.episodesWatched = user.animeStatistics?['num_episodes']?.toInt();
-      Mal.chapterRead = 0;
+      Mal.chapterRead = user.mangaStatistics?['num_chapters']?.toInt() ?? 0;
       Mal.adult = false;
       Mal.unreadNotificationCount = 0;
       Mal.isInitialized.value = true;
@@ -55,6 +55,9 @@ extension on MalQueries {
       }
       if (Mal.episodesWatched != null) {
         saveData(PrefName.malEpisodesWatched, Mal.episodesWatched!);
+      }
+      if (Mal.chapterRead != null) {
+        saveData(PrefName.malChaptersRead, Mal.chapterRead!);
       }
       return true;
     } catch (e) {

@@ -74,9 +74,65 @@ class Media {
     this.numChapters,
   });
 
-  factory Media.fromJson(Map<String, dynamic> json) => _$MediaFromJson(json);
+  factory Media.fromJson(Map<String, dynamic> json) => Media(
+        id: (json['id'] as num?)?.toInt(),
+        title: json['title'] as String?,
+        mainPicture: json['main_picture'] == null
+            ? null
+            : Picture.fromJson(json['main_picture'] as Map<String, dynamic>),
+        alternativeTitles: json['alternative_titles'] == null
+            ? null
+            : AlternativeTitles.fromJson(
+                json['alternative_titles'] as Map<String, dynamic>),
+        startDate: safeParseDate(json['start_date']),
+        endDate: safeParseDate(json['end_date']),
+        synopsis: json['synopsis'] as String?,
+        mean: (json['mean'] as num?)?.toDouble(),
+        rank: (json['rank'] as num?)?.toInt(),
+        popularity: (json['popularity'] as num?)?.toInt(),
+        numListUsers: (json['num_list_users'] as num?)?.toInt(),
+        numScoringUsers: (json['num_scoring_users'] as num?)?.toInt(),
+        nsfw: json['nsfw'] as String?,
+        createdAt: safeParseDate(json['created_at']),
+        updatedAt: safeParseDate(json['updated_at']),
+        mediaType: json['media_type'] as String?,
+        status: json['status'] as String?,
+        genres: (json['genres'] as List<dynamic>?)
+            ?.map((e) => Genre.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        pictures: (json['pictures'] as List<dynamic>?)
+            ?.map((e) => Picture.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        background: json['background'] as String?,
+        relatedAnime: (json['related_anime'] as List<dynamic>?)
+            ?.map((e) => Related.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        relatedManga: (json['related_manga'] as List<dynamic>?)
+            ?.map((e) => Related.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        recommendations: (json['recommendations'] as List<dynamic>?)
+            ?.map((e) => Recommendation.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        myListStatus: json['my_list_status'] == null
+            ? null
+            : MyListStatus.fromJson(
+                json['my_list_status'] as Map<String, dynamic>),
+        numEpisodes: (json['num_episodes'] as num?)?.toInt(),
+        numChapters: (json['num_chapters'] as num?)?.toInt(),
+      );
 
   Map<String, dynamic> toJson() => _$MediaToJson(this);
+}
+
+DateTime? safeParseDate(dynamic val) {
+  if (val == null) return null;
+  if (val is DateTime) return val;
+  if (val is! String || val.isEmpty) return null;
+  final str = val.trim();
+  if (str.startsWith("0000")) return null;
+  if (str.length == 4) return DateTime.tryParse('$str-01-01');
+  if (str.length == 7) return DateTime.tryParse('$str-01');
+  return DateTime.tryParse(str);
 }
 
 @JsonSerializable()
@@ -109,8 +165,16 @@ class MyListStatus {
     this.finishDate,
   });
 
-  factory MyListStatus.fromJson(Map<String, dynamic> json) =>
-      _$MyListStatusFromJson(json);
+  factory MyListStatus.fromJson(Map<String, dynamic> json) => MyListStatus(
+        status: json['status'] as String?,
+        score: (json['score'] as num?)?.toInt(),
+        numEpisodesWatched: (json['num_episodes_watched'] as num?)?.toInt(),
+        numChaptersRead: (json['num_chapters_read'] as num?)?.toInt(),
+        isRewatching: json['is_rewatching'] as bool?,
+        updatedAt: safeParseDate(json['updated_at']),
+        startDate: safeParseDate(json['start_date']),
+        finishDate: safeParseDate(json['finish_date']),
+      );
 
   Map<String, dynamic> toJson() => _$MyListStatusToJson(this);
 }

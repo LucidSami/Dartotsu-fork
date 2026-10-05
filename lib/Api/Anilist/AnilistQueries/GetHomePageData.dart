@@ -193,6 +193,7 @@ extension on AnilistQueries {
 
       for (var list in returnMap.values) {
         for (var media in list) {
+          media.cameFromHome = true;
           final recent = TrackSyncManager.instance.getRecentProgress(media.id) ??
               (media.idMAL != null ? TrackSyncManager.instance.getRecentProgress(media.idMAL!) : null);
           if (recent != null && (media.userProgress == null || recent > media.userProgress!)) {

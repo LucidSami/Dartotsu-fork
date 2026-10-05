@@ -84,7 +84,8 @@ class MediaPageSmallViewHolder extends StatelessWidget {
           children: [
             _buildMediaCover(),
             if (mediaInfo.status == 'RELEASING') ReleasingIndicator(),
-            MediaCountdownPill(mediaInfo: mediaInfo),
+            if (mediaInfo.cameFromContinue == true || mediaInfo.cameFromHome == true)
+              MediaCountdownPill(mediaInfo: mediaInfo),
             ScoreBadge(context, mediaInfo),
           ],
         ),
@@ -202,7 +203,7 @@ class MediaPageSmallViewHolder extends StatelessWidget {
 String formatMediaInfo(Media media) {
   final nextAiringEpisode = media.anime?.nextAiringEpisode;
   final totalEpisodes = "${media.anime?.totalEpisodes ?? "??"}";
-  return nextAiringEpisode != null && nextAiringEpisode != -1
+  return nextAiringEpisode != null && nextAiringEpisode > 0
       ? "$nextAiringEpisode / $totalEpisodes"
       : totalEpisodes;
 }

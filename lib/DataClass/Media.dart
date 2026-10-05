@@ -109,6 +109,7 @@ class Media {
   List<anilistApi.MediaStreamingEpisode>? streamingEpisodes;
 
   bool cameFromContinue = false;
+  bool cameFromHome = false;
   bool mal = false;
   bool kitsu = false;
   int? idAnilist;
@@ -180,6 +181,7 @@ class Media {
     this.malScore,
     this.airingAtTimestamp,
     this.cameFromContinue = false,
+    this.cameFromHome = false,
     this.mal = false,
     this.kitsu = false,
     this.sourceData,

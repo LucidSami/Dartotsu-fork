@@ -79,6 +79,8 @@ class MalController extends BaseServiceData {
     if (cachedEpisodes >= 0) {
       episodesWatched = cachedEpisodes;
     }
+    final cachedChapters = loadData(PrefName.malChaptersRead);
+    chapterRead = cachedChapters >= 0 ? cachedChapters : 0;
 
     if (token.isNotEmpty) {
       getToken().then((m) {
@@ -133,14 +135,15 @@ class MalController extends BaseServiceData {
     removeData(PrefName.malAvatar);
     removeData(PrefName.malUserId);
     removeData(PrefName.malEpisodesWatched);
+    removeData(PrefName.malChaptersRead);
     token.value = '';
     username.value = '';
     adult = false;
     userid = null;
     avatar.value = '';
     bg.value = '';
-    episodesWatched = null;
-    chapterRead = null;
+    episodesWatched = 0;
+    chapterRead = 0;
     unreadNotificationCount = 0;
     run.value = true;
     isInitialized.value = false;

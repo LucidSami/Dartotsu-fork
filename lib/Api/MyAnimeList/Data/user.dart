@@ -18,6 +18,8 @@ class User {
   String? picture;
   @JsonKey(name: "anime_statistics")
   Map<String, double>? animeStatistics;
+  @JsonKey(name: "manga_statistics")
+  Map<String, double>? mangaStatistics;
 
   User({
     this.id,
@@ -27,6 +29,7 @@ class User {
     this.joinedAt,
     this.picture,
     this.animeStatistics,
+    this.mangaStatistics,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -46,6 +49,16 @@ class User {
       });
     }
 
+    Map<String, double>? mangaStats;
+    if (json['manga_statistics'] is Map) {
+      mangaStats = {};
+      (json['manga_statistics'] as Map).forEach((k, v) {
+        if (v is num) {
+          mangaStats![k.toString()] = v.toDouble();
+        }
+      });
+    }
+
     return User(
       id: (json['id'] as num?)?.toInt(),
       name: json['name'] as String?,
@@ -54,6 +67,7 @@ class User {
       joinedAt: parseDate(json['joined_at']),
       picture: json['picture'] as String?,
       animeStatistics: stats,
+      mangaStatistics: mangaStats,
     );
   }
 
