@@ -1,0 +1,166 @@
+import 'package:flutter/foundation.dart';
+import '../Api/Anilist/Anilist.dart';
+import '../Api/MyAnimeList/Mal.dart';
+import '../DataClass/Media.dart';
+import '../Functions/string_extensions.dart';
+import '../Preferences/PrefManager.dart';
+
+class TrackSyncManager {
+  static final TrackSyncManager instance = TrackSyncManager._internal();
+  TrackSyncManager._internal();
+
+  final Map<int, int> _malToAnilistIdMap = {};
+  final Map<int, int> _anilistToMalIdMap = {};
+  final Map<int, int> _recentProgressMap = {};
+
+  int? getRecentProgress(int mediaId) => _recentProgressMap[mediaId];
+
+  /// Syncs episode / chapter progress according to the 3 scenarios:
+  /// 1. MAL logged in, AniList isn't -> only MAL tracks, AniList ignored silently without errors
+  /// 2. AniList logged in, MAL isn't -> AniList tracks, MAL ignored silently without errors
+  /// 3. Both logged in -> Track BOTH AniList and MAL simultaneously
+  Future<void> syncProgress({
+    required Media media,
+    required String episodeOrChapterNumber,
+  }) async {
+    final saveProgress =
+        loadCustomData<bool>("${media.id}-saveProgress") ??
+        loadCustomData<bool>("${media.id}-AniList-saveProgress") ??
+        loadCustomData<bool>("${media.id}-MyAnimeList-saveProgress") ??
+        true;
+
+    if (!saveProgress) {
+      debugPrint("TrackSyncManager: Progress saving disabled for ${media.name}");
+      return;
+    }
+
+    final bool anilistLoggedIn =
+        Anilist.token.value.isNotEmpty && Anilist.userid != null;
+    final bool malLoggedIn = Mal.token.value.isNotEmpty;
+
+    debugPrint(
+      "TrackSyncManager: AniList logged in: $anilistLoggedIn | MAL logged in: $malLoggedIn | Title: ${media.name}",
+    );
+
+    final progress = episodeOrChapterNumber.toDouble().toInt();
+    media.userProgress = progress;
+    _recentProgressMap[media.id] = progress;
+    if (media.idMAL != null) _recentProgressMap[media.idMAL!] = progress;
+
+    if (!anilistLoggedIn && !malLoggedIn) {
+      debugPrint(
+        "TrackSyncManager: Neither provider is logged in. Remote progress sync ignored silently.",
+      );
+      return;
+    }
+
+    final futures = <Future<void>>[];
+
+    // Scenario 2 & 3: AniList logged in
+    if (anilistLoggedIn) {
+      futures.add(_syncAnilist(media, episodeOrChapterNumber));
+    }
+
+    // Scenario 1 & 3: MAL logged in
+    if (malLoggedIn) {
+      futures.add(_syncMal(media, episodeOrChapterNumber));
+    }
+
+    try {
+      await Future.wait(futures);
+    } catch (e) {
+      debugPrint("TrackSyncManager sync error: $e");
+    }
+  }
+
+  Future<void> _syncAnilist(Media media, String episodeOrChapterNumber) async {
+    try {
+      if (Anilist.mutations == null) return;
+
+      if (!media.mal) {
+        // Active media is native to AniList (media.id is AniList ID)
+        await Anilist.mutations!.setProgress(media, episodeOrChapterNumber);
+      } else {
+        // Active media is from MAL (media.id is MAL ID).
+        final malId = media.id;
+        int? anilistId = _malToAnilistIdMap[malId];
+        Media? anilistMedia;
+
+        if (anilistId != null) {
+          anilistMedia = Media(
+            id: anilistId,
+            idMAL: malId,
+            mal: false,
+            name: media.name,
+            nameRomaji: media.nameRomaji,
+            userPreferredName: media.userPreferredName,
+            anime: media.anime,
+            manga: media.manga,
+            format: media.format,
+            status: media.status,
+            userProgress: media.userProgress,
+            userStatus: media.userStatus,
+          );
+        } else {
+          anilistMedia = await Anilist.query?.getMedia(malId, mal: true);
+          if (anilistMedia != null) {
+            _malToAnilistIdMap[malId] = anilistMedia.id;
+          }
+        }
+
+        if (anilistMedia != null) {
+          await Anilist.mutations!.setProgress(
+            anilistMedia,
+            episodeOrChapterNumber,
+          );
+        } else {
+          debugPrint(
+            "TrackSyncManager: AniList entry not found for MAL ID $malId (ignored silently)",
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("TrackSyncManager: AniList sync ignored silently on error: $e");
+    }
+  }
+
+  Future<void> _syncMal(Media media, String episodeOrChapterNumber) async {
+    try {
+      if (Mal.mutations == null) return;
+
+      if (media.mal) {
+        // Active media is native to MAL (media.id is MAL ID)
+        await Mal.mutations!.setProgress(media, episodeOrChapterNumber);
+      } else {
+        // Active media is from AniList.
+        var malId = media.idMAL ?? _anilistToMalIdMap[media.id];
+        if (malId == null || malId <= 0) {
+          debugPrint(
+            "TrackSyncManager: No MAL ID on AniList media ${media.name} (ignored silently)",
+          );
+          return;
+        }
+
+        _anilistToMalIdMap[media.id] = malId;
+
+        final malMedia = Media(
+          id: malId,
+          idMAL: malId,
+          mal: true,
+          name: media.name,
+          nameRomaji: media.nameRomaji,
+          userPreferredName: media.userPreferredName,
+          anime: media.anime,
+          manga: media.manga,
+          format: media.format,
+          status: media.status,
+          userProgress: media.userProgress,
+          userStatus: media.userStatus,
+        );
+        await Mal.mutations!.setProgress(malMedia, episodeOrChapterNumber);
+      }
+    } catch (e) {
+      debugPrint("TrackSyncManager: MAL sync ignored silently on error: $e");
+    }
+  }
+}

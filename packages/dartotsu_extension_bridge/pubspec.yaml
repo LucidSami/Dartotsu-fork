@@ -1,0 +1,66 @@
+name: dartotsu_extension_bridge
+description: "A new Flutter plugin project."
+version: 0.0.5
+publish_to: none
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.2.0
+  archive: ^4.0.9
+  plugin_platform_interface: ^2.1.8
+  http: ^1.6.0
+  isar_community: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2
+  d4rt: ^0.2.2
+  get: ^4.7.3
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  http_interceptor: ^3.0.0
+  html: ^0.15.6
+  intl: any
+  flutter_inappwebview: ^6.2.0-beta.2
+  pseudom: ^1.0.1
+  encrypt: ^5.0.3
+  convert: ^3.1.1
+  xpath_selector_html_parser: ^3.0.1
+  js_packer: ^0.0.6
+  crypto: ^3.0.7
+  flutter_qjs:
+    git:
+      url: https://github.com/kodjodevf/flutter_qjs.git
+      ref: f3cef51
+
+  epubx:
+    git:
+      url: https://github.com/kodjodevf/epubx.dart.git
+      ref: dev
+  install_plugin: ^2.1.0
+  installed_apps: ^2.1.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  isar_community_generator: ^3.3.2
+  build_runner: ^2.15.0
+
+flutter:
+  assets:
+    - assets/jni/
+    - assets/images/
+  plugin:
+    platforms:
+      android:
+        package: com.aayush262.dartotsu_extension_bridge
+        pluginClass: DartotsuExtensionBridgePlugin
+      ios:
+        pluginClass: DartotsuExtensionBridgePlugin
+      linux:
+        pluginClass: DartotsuExtensionBridgePlugin
+      windows:
+        pluginClass: DartotsuExtensionBridgePluginCApi
+

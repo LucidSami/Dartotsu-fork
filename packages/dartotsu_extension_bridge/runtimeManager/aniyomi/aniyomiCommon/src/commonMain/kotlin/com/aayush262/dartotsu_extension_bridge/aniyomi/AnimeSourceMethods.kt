@@ -1,0 +1,235 @@
+package com.aayush262.dartotsu_extension_bridge.aniyomi
+
+import android.content.SharedPreferences
+import eu.kanade.tachiyomi.PreferenceScreen
+import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+import eu.kanade.tachiyomi.animesource.AnimeSource
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.NO_HOSTER_LIST
+import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.sourcePreferences
+import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.model.SChapter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import kotlin.collections.flatten
+
+class AnimeSourceMethods(sourceID: String) : AniyomiSourceMethods {
+
+    private val source: AnimeCatalogueSource
+
+    init {
+        val manager = Injekt.get<AniyomiExtensionManager>()
+
+        val src = manager.installedAnimeExtensions
+            .asSequence()
+            .flatMap { it.key.sources.asSequence() }
+            .firstOrNull { it.id.toString() == sourceID }
+            ?: throw IllegalArgumentException(
+                "Anime source with ID '$sourceID' not found."
+            )
+
+        source = src as? AnimeHttpSource
+            ?: src as? AnimeCatalogueSource
+                    ?: throw IllegalArgumentException(
+                "Source with ID '$sourceID' is not an AnimeHttpSource or AnimeCatalogueSource"
+            )
+    }
+
+
+    override var baseUrl = (source as? AnimeHttpSource)?.baseUrl
+
+    override suspend fun getPopular(page: Int): AnimesPage = source.getPopularAnime(page)
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = source.getLatestUpdates(page)
+
+    override suspend fun getSearchResults(query: String, page: Int): AnimesPage = source.getSearchAnime(
+        page = page, query = query, filters = source.getFilterList()
+    )
+
+    override suspend fun getDetails(media: SAnime): Pair<SAnime, List<SEpisode>> = source.getAnimeDetails(media) to getEpisodeList(media)
+
+
+    suspend fun getEpisodeList(media: SAnime): List<SEpisode> {
+        runCatching {
+            return (source as? AnimeHttpSource? ?: source).getEpisodeList(media)
+
+        }
+
+        val seasons = runCatching { source.getSeasonList(media) }.getOrElse {
+                throw UnsupportedOperationException(
+                    "This source does not support fetching episodes."
+                )
+            }
+
+        val episodes = mutableListOf<SEpisode>()
+
+        seasons.forEachIndexed { _, season ->
+            val seasonEpisodes = runCatching {
+                source.getEpisodeList(season)
+            }.getOrNull() ?: emptyList()
+
+            seasonEpisodes.forEach { ep ->
+                ep.name = "${season.title}: ${ep.name}"
+            }
+
+            episodes += seasonEpisodes
+        }
+
+        return episodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
+    }
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val hosters = runCatching {
+            source.getHosterList(episode)
+        }.getOrElse { emptyList() }
+
+        // If hosters exist (lib 16), don't call deprecated getVideoList(episode) which throws
+        val directVideos = if (hosters.isEmpty()) {
+            runCatching {
+                source.getVideoList(episode)
+            }.getOrElse { emptyList() }
+        } else {
+            emptyList()
+        }
+
+        val sortedHosters = runCatching {
+            if (source is AnimeHttpSource) (source as AnimeHttpSource).run { hosters.sortHosters() } else hosters
+        }.getOrElse { hosters }
+
+        // Filter out lazy hosters from initial extraction; if all are lazy, prioritize the first (preferred) hoster
+        val activeHosters = sortedHosters.filterNot { it.lazy }
+        val hostersToFetch = if (activeHosters.isEmpty() && sortedHosters.isNotEmpty()) {
+            listOf(sortedHosters.first())
+        } else {
+            activeHosters
+        }
+
+        val hosterVideos = if (hostersToFetch.isNotEmpty()) {
+            coroutineScope {
+                hostersToFetch.map { hoster ->
+                    async(Dispatchers.IO) {
+                        val videos = when {
+                            !hoster.videoList.isNullOrEmpty() -> hoster.videoList
+                            else -> runCatching {
+                                source.getVideoList(hoster)
+                            }.getOrElse { emptyList() }
+                        }
+
+                        videos.map { video ->
+                            val resolved = if (source is AnimeHttpSource) resolveVideo(source as AnimeHttpSource, video) else video
+                            val title = if (
+                                hoster.hosterName.isBlank() ||
+                                hoster.hosterName == NO_HOSTER_LIST
+                            ) {
+                                resolved.videoTitle
+                            } else if (!resolved.videoTitle.contains(hoster.hosterName, ignoreCase = true)) {
+                                "${hoster.hosterName} - ${resolved.videoTitle.ifBlank { "Default" }}"
+                            } else {
+                                resolved.videoTitle.ifBlank { hoster.hosterName.ifBlank { "Default" } }
+                            }
+
+                            resolved.copy(
+                                videoTitle = title,
+                                initialized = true
+                            )
+                        }
+                    }
+                }.awaitAll().flatten()
+            }
+        } else {
+            emptyList()
+        }
+
+        val resolvedDirect = if (directVideos.isNotEmpty() && source is AnimeHttpSource) {
+            coroutineScope {
+                directVideos.map {
+                    async(Dispatchers.IO) {
+                        runCatching { resolveVideo(source as AnimeHttpSource, it) }.getOrNull()
+                    }
+                }.awaitAll().filterNotNull()
+            }
+        } else {
+            directVideos
+        }
+
+        val allVideos = (resolvedDirect + hosterVideos)
+            .distinctBy {
+                if (it.videoUrl.isNotBlank() && it.videoUrl != "null") it.videoUrl
+                else if (it.url.isNotBlank() && it.url != "null") it.url
+                else it.videoTitle
+            }
+            .filter { (it.videoUrl.isNotBlank() && it.videoUrl != "null") || (it.url.isNotBlank() && it.url != "null") }
+
+        return runCatching {
+            if (source is AnimeHttpSource) (source as AnimeHttpSource).run { allVideos.sortVideos() } else allVideos
+        }.getOrElse { allVideos }
+    }
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = throw UnsupportedOperationException("Pages are not supported in anime sources.")
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        if (source is ConfigurableAnimeSource) {
+            source.setupPreferenceScreen(screen)
+        } else {
+            throw NoPreferenceScreenException("This source does not support preferences.")
+        }
+    }
+
+    override fun getSourcePreferences(): SharedPreferences {
+        if (source is ConfigurableAnimeSource) {
+            return source.sourcePreferences()
+        } else {
+            throw NoPreferenceScreenException("This source does not support preferences.")
+        }
+    }
+
+    private suspend fun resolveVideo(
+        source: AnimeHttpSource,
+        video: Video
+    ): Video {
+        if (video.initialized && video.videoUrl.isNotEmpty() && video.videoUrl != "null") {
+            return video
+        }
+
+        // 1. Modern lib 16 API: call resolveVideo directly
+        val resolved = runCatching {
+            source.resolveVideo(video)
+        }.getOrNull()
+
+        if (resolved != null && resolved.videoUrl.isNotBlank() && resolved.videoUrl != "null") {
+            return resolved
+        }
+
+        // 2. Legacy fallback: only call getVideoUrl if resolveVideo returned null and url is blank
+        if (video.videoUrl == "null" || video.videoUrl.isEmpty()) {
+            val newUrl = runCatching {
+                source.getVideoUrl(video)
+            }.getOrNull()
+
+            if (!newUrl.isNullOrEmpty() && newUrl != "null") {
+                return video.copy(videoUrl = newUrl, initialized = true)
+            }
+        }
+
+        // 3. Last resort: use video.url as videoUrl
+        if ((video.videoUrl.isBlank() || video.videoUrl == "null") && video.url.isNotBlank() && video.url != "null") {
+            return video.copy(videoUrl = video.url, initialized = true)
+        }
+
+        return video
+    }
+}
+
+class NoPreferenceScreenException(message: String) : Exception(message)
+

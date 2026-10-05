@@ -1,0 +1,31 @@
+[versions]
+coroutines = "1.11.0"
+okhttp = "5.5.0"
+gson = "2.14.0"
+jsoup = "1.23.2"
+okio = "3.18.2"
+[libraries]
+coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+okhttp-logging = { module = "com.squareup.okhttp3:logging-interceptor", version.ref = "okhttp" }
+okhttp-doh = { module = "com.squareup.okhttp3:okhttp-dnsoverhttps", version.ref = "okhttp" }
+okhttp-brotli = { module = "com.squareup.okhttp3:okhttp-brotli", version.ref = "okhttp" }
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+okhttp-zstd = { module = "com.squareup.okhttp3:okhttp-zstd", version.ref = "okhttp" }
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+
+[bundles]
+common = [
+    "coroutines-core",
+    "okhttp",
+    "okhttp-logging",
+    "okhttp-doh",
+    "okhttp-brotli",
+    "okhttp-zstd",
+    "okio",
+    "gson",
+    "jsoup",
+]

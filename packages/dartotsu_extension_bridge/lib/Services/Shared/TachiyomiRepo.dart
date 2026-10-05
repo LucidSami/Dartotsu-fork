@@ -1,0 +1,686 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import '../../Extensions/Extensions.dart';
+import '../../Logger.dart';
+import '../../Models/Source.dart';
+import 'PackagedSource.dart';
+import 'ProtoReader.dart';
+
+/// Helpers shared by every backend that consumes a Tachiyomi-style
+/// `index.min.json` repository (Aniyomi, IReader, Tsundoku — both the Android
+/// and desktop variants).
+///
+/// Previously each of those `*Extensions` classes carried its own byte-for-byte
+/// copy of `fallbackRepoUrl` and a near-identical `_parseExtensions`; the only
+/// real differences were the concrete `Source` subtype and the display-name
+/// prefix. Those live here now.
+
+/// Normalises `repoUrl` to its `index.min.json` endpoint, tolerating a trailing
+/// slash or an URL that already points at the index.
+String tachiyomiIndexUrl(String repoUrl) {
+  // Already an index endpoint (JSON or protobuf) — leave it alone.
+  if (repoUrl.endsWith('index.min.json') || repoUrl.endsWith('.pb')) {
+    return repoUrl;
+  }
+  final trimmed = repoUrl.replaceAll(RegExp(r'/+$'), '');
+  if (trimmed.toLowerCase().contains('keiyoushi')) {
+    return '$trimmed/index.pb';
+  }
+  return '$trimmed/index.min.json';
+}
+
+/// Rewrites a GitHub raw repo URL to a jsDelivr mirror, used as a fallback when
+/// the primary host is unreachable. Returns `null` when the URL doesn't look
+/// like `.../<owner>/<repo>[/<branch>]...`.
+///
+/// Handles both GitHub raw shapes and keeps whatever file the URL pointed at, so
+/// an `index.pb` endpoint doesn't silently fall back to `index.min.json`:
+///
+/// * `raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`
+/// * `github.com/<owner>/<repo>/raw/<branch>/<path>`
+String? tachiyomiFallbackRepoUrl(String repoUrl) {
+  try {
+    final stripped = repoUrl
+        .replaceFirst(RegExp(r'^https?://'), '')
+        .replaceAll(RegExp(r'/+$'), '');
+
+    final parts = stripped.split('/').where((p) => p.isNotEmpty).toList();
+    if (parts.length < 3) return null;
+
+    final owner = parts[1];
+    final repo = parts[2];
+
+    // github.com puts a literal `raw` segment before the branch.
+    final branchIndex = (parts.length > 3 && parts[3] == 'raw') ? 4 : 3;
+    final branch = parts.length > branchIndex ? parts[branchIndex] : 'main';
+    final path = parts.skip(branchIndex + 1).join('/');
+
+    final base = 'https://gcore.jsdelivr.net/gh/$owner/$repo@$branch';
+    return path.isEmpty ? base : '$base/$path';
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Downloads an extension package ([url]) to [destPath], atomically.
+///
+/// Every desktop backend used to inline the same three lines — `send`, fold the
+/// stream into a `List<int>`, `writeAsBytes` — with **no status check**, so a
+/// 404 / 500 / Cloudflare HTML page was happily written out as a `.jar` and the
+/// JVM would then fail to load it with an opaque error. This checks the status,
+/// streams straight to disk, and only swaps the real file in once the whole
+/// body has arrived, so an interrupted download can't leave a half-written
+/// archive in the extensions directory.
+Future<void> downloadPackageFile(
+  http.Client client,
+  String url,
+  String destPath, {
+  void Function(int received, int? total)? onProgress,
+}) async {
+  final request = http.Request('GET', Uri.parse(url));
+  final response = await client.send(request);
+
+  if (response.statusCode != 200) {
+    // Drain so the connection can be reused.
+    await response.stream.drain<void>();
+    throw Exception(
+      'Extension download failed (${response.statusCode}) for $url',
+    );
+  }
+
+  final dest = File(destPath);
+  await dest.parent.create(recursive: true);
+
+  final temp = File('$destPath.tmp');
+  final sink = temp.openWrite();
+  final total = response.contentLength;
+  var received = 0;
+
+  try {
+    if (onProgress == null) {
+      // No progress consumer - addStream is the cheaper path (no per-chunk
+      // Dart-side bookkeeping).
+      await sink.addStream(response.stream);
+    } else {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress(received, total);
+      }
+    }
+    await sink.flush();
+  } finally {
+    await sink.close();
+  }
+
+  try {
+    await temp.rename(destPath);
+  } on FileSystemException {
+    // Windows won't rename onto an existing file — fall back to replace.
+    await temp.copy(destPath);
+    await temp.delete();
+  }
+}
+
+/// One extension package as described by an `index.min.json` entry, already
+/// resolved against the repo URL. Field names mirror the `Source` constructor
+/// so a backend's factory is a straight field copy.
+class TachiyomiRepoEntry {
+  final String id;
+  final String name;
+  final String? pkgName;
+  final String? apkName;
+  final String? lang;
+  final String? version;
+  final bool isNsfw;
+  final ItemType itemType;
+  final String repo;
+  final String iconUrl;
+
+  /// Direct download URL when the repo states one (the `index.pb` format does).
+  /// `null` for the JSON format, where it is derived from [iconUrl] + [apkName].
+  final String? apkUrl;
+
+  /// Desktop JAR URL, when the repo publishes one alongside the APK.
+  final String? jarUrl;
+
+  const TachiyomiRepoEntry({
+    required this.id,
+    required this.name,
+    required this.pkgName,
+    required this.apkName,
+    required this.lang,
+    required this.version,
+    required this.isNsfw,
+    required this.itemType,
+    required this.repo,
+    required this.iconUrl,
+    this.apkUrl,
+    this.jarUrl,
+  });
+}
+
+/// Parses a Tachiyomi `index.min.json` [body] into concrete sources.
+///
+/// [prefixes] maps a display-name prefix (e.g. `'Aniyomi: '`) to the
+/// [ItemType] it denotes; entries whose resolved type isn't [targetType] are
+/// skipped. The prefix is stripped from the name using its own length, so
+/// callers no longer have to hand-count offsets. [factory] turns a resolved
+/// [TachiyomiRepoEntry] into the backend's `Source` subtype.
+///
+/// Safe to call inside `compute()` — it performs no I/O and touches no state.
+List<T> parseTachiyomiRepoIndex<T extends Source>({
+  required String body,
+  required String repoUrl,
+  required ItemType targetType,
+  required Map<String, ItemType> prefixes,
+  required T Function(TachiyomiRepoEntry entry) factory,
+}) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is! List) return const [];
+
+    const suffix = '/index.min.json';
+    final baseIconUrl = repoUrl.endsWith(suffix)
+        ? repoUrl.substring(0, repoUrl.length - suffix.length)
+        : repoUrl;
+
+    final sources = <T>[];
+
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      final map = item.cast<String, dynamic>();
+      final name = map['name'] as String? ?? '';
+
+      ItemType? detectedType;
+      String displayName = name;
+      for (final entry in prefixes.entries) {
+        if (name.startsWith(entry.key)) {
+          detectedType = entry.value;
+          displayName = name.substring(entry.key.length);
+          break;
+        }
+      }
+
+      if (detectedType == null) {
+        final pkg = map['pkg'] as String?;
+        final inferred = _pbItemType(pkg);
+        if (inferred != null) {
+          detectedType = inferred;
+        } else if (prefixes.isEmpty || prefixes.values.every((t) => t == targetType)) {
+          detectedType = targetType;
+        } else if (targetType == ItemType.manga && pkg != null && !pkg.contains('animeextension')) {
+          detectedType = ItemType.manga;
+        }
+      }
+
+      if (detectedType != targetType) continue;
+
+      final sourcesList = map['sources'];
+      final id = (sourcesList is List && sourcesList.isNotEmpty)
+          ? (sourcesList.first['id']?.toString() ?? '')
+          : '';
+
+      final apkName = map['apk'] as String?;
+
+      sources.add(
+        factory(
+          TachiyomiRepoEntry(
+            id: id,
+            name: displayName,
+            pkgName: map['pkg'] as String?,
+            apkName: apkName,
+            lang: map['lang'] as String?,
+            version: map['version']?.toString(),
+            isNsfw: map['nsfw'] == 1,
+            itemType: detectedType!,
+            repo: repoUrl,
+            iconUrl: '$baseIconUrl/icon/${map['pkg']}.png',
+            // The JSON index doesn't state a download URL, but the Tachiyomi
+            // repo layout is fixed: `<repo>/apk/<file>`. Deriving it here means
+            // every backend gets a non-null `apkUrl` regardless of whether its
+            // Source subtype recomputes one — IReader's `ISource` in particular
+            // stores this verbatim and can't derive it.
+            apkUrl: (apkName != null && apkName.isNotEmpty)
+                ? '$baseIconUrl/apk/$apkName'
+                : null,
+          ),
+        ),
+      );
+    }
+
+    return List.unmodifiable(sources);
+  } catch (e) {
+    // Runs inside compute(): DartotsuExtensionBridge.context isn't available in
+    // the worker isolate, so log via debugPrint rather than Logger.
+    debugPrint('Failed to parse Tachiyomi repo index from $repoUrl: $e');
+    return const [];
+  }
+}
+
+/// Flags installed [PackagedSource]s that have a newer version in [available],
+/// copying the fresh `apkName` / `iconUrl` / `version` across and bumping the
+/// [Extension]'s installed list so listeners refresh.
+///
+/// Shared by every Tachiyomi-style backend; the per-class `detectUpdates`
+/// override is now a one-line delegate to this.
+void detectTachiyomiUpdates(
+  Extension ext,
+  List<Source> available,
+  ItemType type,
+) {
+  final repoById = <String, PackagedSource>{};
+  final repoByPkg = <String, PackagedSource>{};
+  final repoByName = <String, PackagedSource>{};
+
+  for (final s in available) {
+    if (s is PackagedSource) {
+      if (s.id != null && s.id!.isNotEmpty) repoById[s.id!] = s;
+      if (s.pkgName != null && s.pkgName!.isNotEmpty) repoByPkg[s.pkgName!] = s;
+      if (s.name != null && s.name!.isNotEmpty) repoByName[s.name!] = s;
+    }
+  }
+
+  final installed = ext.state(type).installed.value;
+  var changed = false;
+
+  for (final inst in installed) {
+    if (inst is! PackagedSource) continue;
+
+    final repo = (inst.pkgName != null && inst.pkgName!.isNotEmpty ? repoByPkg[inst.pkgName!] : null) ??
+        (inst.id != null && inst.id!.isNotEmpty ? repoById[inst.id!] : null) ??
+        (inst.name != null && inst.name!.isNotEmpty ? repoByName[inst.name!] : null);
+    if (repo == null) continue;
+
+    final hasUpdate =
+        ext.compareVersions(repo.version ?? '0', inst.version ?? '0') > 0;
+
+    if (hasUpdate) {
+      // Carry every field the install path needs across, not just the name —
+      // `apkUrlOverride` / `jarUrl` in particular encode the version in their
+      // path for `index.pb` repos, so a stale value would re-download the
+      // version already installed.
+      inst
+        ..hasUpdate = true
+        ..apkName = repo.apkName
+        ..apkUrlOverride = repo.apkUrlOverride
+        ..jarUrl = repo.jarUrl
+        ..pkgName = repo.pkgName ?? inst.pkgName
+        ..iconUrl = repo.iconUrl
+        ..versionLast = repo.version;
+      changed = true;
+    } else if (inst.hasUpdate == true) {
+      // The repo caught up (or rolled back) — drop a now-stale flag.
+      inst.hasUpdate = false;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    ext.state(type).installed.value = List.unmodifiable(installed);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// index.pb (protobuf) repositories
+// ---------------------------------------------------------------------------
+
+/// Wire format of a repository index.
+enum RepoIndexFormat {
+  /// The historical `index.min.json` array.
+  json,
+
+  /// The gzipped-protobuf `index.pb` introduced by Mihon / keiyoushi.
+  protobuf,
+}
+
+/// Picks the index format from the URL. Anything ending in `.pb` is protobuf;
+/// everything else keeps the legacy JSON behaviour.
+RepoIndexFormat tachiyomiIndexFormat(String url) =>
+    url.endsWith('.pb') ? RepoIndexFormat.protobuf : RepoIndexFormat.json;
+
+/// Decodes raw index [body] bytes into concrete sources, dispatching on the
+/// wire format ([tachiyomiIndexFormat]) so callers don't have to.
+///
+/// Every Tachiyomi-style backend's `static _parseExtensions` (the function it
+/// hands to `compute()`) was a byte-identical JSON-vs-protobuf `if` around
+/// [parseTachiyomiRepoIndex] / [parseTachiyomiPbIndex]; they now just forward
+/// their [prefixes] and [factory] here. Safe to call inside `compute()`.
+List<T> parseTachiyomiIndexBytes<T extends Source>(
+  Uint8List body,
+  String repoUrl,
+  ItemType targetType, {
+  required Map<String, ItemType> prefixes,
+  required T Function(TachiyomiRepoEntry entry) factory,
+}) {
+  if (tachiyomiIndexFormat(repoUrl) == RepoIndexFormat.protobuf) {
+    return parseTachiyomiPbIndex<T>(
+      body: body,
+      repoUrl: repoUrl,
+      targetType: targetType,
+      factory: factory,
+    );
+  }
+  return parseTachiyomiRepoIndex<T>(
+    body: utf8.decode(body, allowMalformed: true),
+    repoUrl: repoUrl,
+    targetType: targetType,
+    prefixes: prefixes,
+    factory: factory,
+  );
+}
+
+/// `contentWarning` enum from the index.pb schema.
+/// 0 unspecified, 1 safe, 2 mixed, 3 nsfw — Mihon treats `>= mixed` as NSFW.
+const _pbContentWarningMixed = 2;
+
+// Field numbers, mirroring mihon's NetworkExtensionStore.
+const _pbStoreExtensionList = 101;
+const _pbStoreExtensionListUrl = 102;
+const _pbListExtensions = 1;
+const _pbExtName = 1;
+const _pbExtPackageName = 2;
+const _pbExtResources = 3;
+const _pbExtLib = 4;
+const _pbExtVersionCode = 5;
+const _pbExtVersionName = 6;
+const _pbExtContentWarning = 7;
+const _pbExtSources = 8;
+const _pbResApkUrl = 1;
+const _pbResIconUrl = 2;
+const _pbResJarUrl = 501; // keiyoushi extension: prebuilt desktop jar
+const _pbSourceId = 1;
+const _pbSourceLanguage = 3;
+
+Uint8List _gunzipIfNeeded(Uint8List body) {
+  if (body.length >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+    return Uint8List.fromList(gzip.decode(body));
+  }
+  return body;
+}
+
+/// Some stores ship only metadata at `index.pb` and point at a second URL for
+/// the extension list itself. Returns that URL, or `null` when the list is
+/// inlined (the common case).
+String? tachiyomiPbExtensionListUrl(Uint8List body) {
+  try {
+    final store = ProtoMessage.decode(_gunzipIfNeeded(body));
+    if (store.has(_pbStoreExtensionList)) return null;
+    return store.readString(_pbStoreExtensionListUrl);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Parses a gzipped-protobuf `index.pb` [body] into concrete sources.
+///
+/// Unlike the JSON format there are no `"Aniyomi: "` / `"Tachiyomi: "` name
+/// prefixes, so the item type comes from the package name
+/// (`eu.kanade.tachiyomi.animeextension.*` vs `...extension.*`), falling back to
+/// [targetType] when it can't be told apart.
+///
+/// Safe to call inside `compute()`.
+List<T> parseTachiyomiPbIndex<T extends Source>({
+  required Uint8List body,
+  required String repoUrl,
+  required ItemType targetType,
+  required T Function(TachiyomiRepoEntry entry) factory,
+}) {
+  try {
+    final store = ProtoMessage.decode(_gunzipIfNeeded(body));
+
+    final list = store.readMessage(_pbStoreExtensionList);
+    if (list == null) return const [];
+
+    final sources = <T>[];
+
+    for (final ext in list.readMessages(_pbListExtensions)) {
+      final pkgName = ext.readString(_pbExtPackageName);
+      final itemType = _pbItemType(pkgName) ?? targetType;
+      if (itemType != targetType) continue;
+
+      final resources = ext.readMessage(_pbExtResources);
+      final apkUrl = resources?.readString(_pbResApkUrl);
+      final iconUrl = resources?.readString(_pbResIconUrl) ?? '';
+      final jarUrl = resources?.readString(_pbResJarUrl);
+
+      final entrySources = ext.readMessages(_pbExtSources);
+      final id = entrySources.isEmpty
+          ? ''
+          : (entrySources.first.readInt(_pbSourceId)?.toString() ?? '');
+
+      final languages = <String>{
+        for (final s in entrySources)
+          if (s.readString(_pbSourceLanguage) case final l? when l.isNotEmpty)
+            l,
+      };
+
+      final warning = ext.readInt(_pbExtContentWarning) ?? 0;
+
+      sources.add(
+        factory(
+          TachiyomiRepoEntry(
+            id: id,
+            name: ext.readString(_pbExtName) ?? '',
+            pkgName: pkgName,
+            apkName: apkUrl?.split('/').last,
+            lang: languages.length == 1 ? languages.first : 'all',
+            version:
+                ext.readString(_pbExtVersionName) ??
+                ext.readInt(_pbExtVersionCode)?.toString(),
+            isNsfw: warning >= _pbContentWarningMixed,
+            itemType: itemType,
+            repo: repoUrl,
+            iconUrl: iconUrl,
+            apkUrl: apkUrl,
+            jarUrl: jarUrl,
+          ),
+        ),
+      );
+    }
+
+    return List.unmodifiable(sources);
+  } catch (e) {
+    debugPrint('Failed to parse index.pb from $repoUrl: $e');
+    return const [];
+  }
+}
+
+ItemType? _pbItemType(String? pkgName) {
+  if (pkgName == null) return null;
+  if (pkgName.contains('.animeextension.')) return ItemType.anime;
+  if (pkgName.contains('.extension.')) return ItemType.manga;
+  return null;
+}
+
+/// Reads `extensionLib` (field 4) — unused by the bridge today but kept next to
+/// the other field constants so the schema stays documented in one place.
+String? tachiyomiPbExtensionLib(ProtoMessage extension) =>
+    extension.readString(_pbExtLib);
+
+/// Result of a repo index fetch: the raw bytes plus the URL they came from
+/// (which may be the jsDelivr mirror rather than the URL originally asked for).
+typedef RepoIndexResponse = ({Uint8List body, String url});
+
+/// Fetches a repository index, trying [repoUrl] first and falling back to the
+/// jsDelivr mirror when the primary host fails.
+///
+/// Works for both `index.min.json` and `index.pb` — the bytes are returned
+/// undecoded so the caller can dispatch on [tachiyomiIndexFormat]. Throws when
+/// both the primary and the fallback fail.
+///
+/// This replaces the primary/fallback block that each backend used to inline
+/// twice (once in `addRepo`, once in `fetchRepo`).
+Future<RepoIndexResponse> fetchTachiyomiRepoIndex(
+  http.Client client,
+  String repoUrl, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final primary = tachiyomiIndexUrl(repoUrl);
+
+  try {
+    final res = await client.get(Uri.parse(primary)).timeout(timeout);
+    if (res.statusCode == 200) {
+      if (primary.endsWith('index.min.json') && res.bodyBytes.length < 5000) {
+        final text = utf8.decode(res.bodyBytes, allowMalformed: true);
+        if (text.contains('eu.kanade.tachiyomi.extension.all.keiyoushi') ||
+            text.contains('Outdated App')) {
+          final pbUrl = primary.replaceFirst(RegExp(r'index\.min\.json$'), 'index.pb');
+          try {
+            final pbRes = await client.get(Uri.parse(pbUrl)).timeout(timeout);
+            if (pbRes.statusCode == 200) {
+              return (body: pbRes.bodyBytes, url: pbUrl);
+            }
+          } catch (_) {}
+        }
+      }
+      return (body: res.bodyBytes, url: primary);
+    }
+    throw Exception('Primary index fetch failed (${res.statusCode})');
+  } catch (e) {
+    Logger.log('Primary repo failed: $primary → $e');
+
+    final fallback = tachiyomiFallbackRepoUrl(repoUrl);
+    if (fallback == null) {
+      throw Exception('Failed to fetch repo and no fallback available');
+    }
+
+    final fallbackUrl = tachiyomiIndexUrl(fallback);
+
+    try {
+      final res = await client.get(Uri.parse(fallbackUrl)).timeout(timeout);
+      if (res.statusCode == 200) {
+        if (fallbackUrl.endsWith('index.min.json') && res.bodyBytes.length < 5000) {
+          final text = utf8.decode(res.bodyBytes, allowMalformed: true);
+          if (text.contains('eu.kanade.tachiyomi.extension.all.keiyoushi') ||
+              text.contains('Outdated App')) {
+            final pbUrl = fallbackUrl.replaceFirst(RegExp(r'index\.min\.json$'), 'index.pb');
+            try {
+              final pbRes = await client.get(Uri.parse(pbUrl)).timeout(timeout);
+              if (pbRes.statusCode == 200) {
+                return (body: pbRes.bodyBytes, url: pbUrl);
+              }
+            } catch (_) {}
+          }
+        }
+        return (body: res.bodyBytes, url: fallbackUrl);
+      }
+      throw Exception('Fallback index fetch failed (${res.statusCode})');
+    } catch (e2) {
+      Logger.log('Fallback failed: $fallbackUrl → $e2');
+      throw Exception('Failed to fetch repo (primary + fallback)');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared backend behaviour
+// ---------------------------------------------------------------------------
+
+/// Repo plumbing shared by every Tachiyomi-style backend (Aniyomi, IReader,
+/// Tsundoku — Android and desktop).
+///
+/// `addRepo`, `fetchRepo` and `detectUpdates` were byte-identical across all of
+/// them save for the concrete `Source` subtype (hidden behind
+/// [parseIndexIsolate]) and whether a desktop backend refreshes the stored
+/// extension count on every fetch ([refreshExtensionCountOnFetch]).
+mixin TachiyomiRepoBackend on Extension {
+  /// HTTP client used for repo index fetches.
+  http.Client get repoClient;
+
+  /// The backend's `static _parseExtensions` — the function handed to
+  /// `compute()`. Kept per-backend so the isolate entry point stays a plain
+  /// static tear-off; this mixin just calls it.
+  List<Source> Function((Uint8List body, String repoUrl, ItemType type))
+  get parseIndexIsolate;
+
+  /// Desktop backends persist the parsed count back onto the [Repo] after every
+  /// fetch; the Android ones only do it when a repo is first added. Defaults to
+  /// the Android behaviour.
+  bool get refreshExtensionCountOnFetch => false;
+
+  @override
+  Stream<double> addRepo(String repoUrl, ItemType type) {
+    // The index fetch + parse here has no natural byte-progress signal (a
+    // single JSON/protobuf response, not a large streamed binary like
+    // Kotatsu's parsers jar) - this just reports start/done via
+    // progressStream rather than granular progress.
+    return progressStream((_) async {
+      try {
+        var inputUrl = repoUrl.trim();
+        if (inputUrl.contains('github.com') && inputUrl.contains('/blob/')) {
+          inputUrl = inputUrl
+              .replaceFirst('github.com', 'raw.githubusercontent.com')
+              .replaceFirst('/blob/', '/');
+        } else if (inputUrl.contains('github.com') && inputUrl.contains('/tree/')) {
+          inputUrl = inputUrl
+              .replaceFirst('github.com', 'raw.githubusercontent.com')
+              .replaceFirst('/tree/', '/');
+        }
+
+        if (!inputUrl.startsWith('http://') && !inputUrl.startsWith('https://')) {
+          inputUrl = 'https://$inputUrl';
+        }
+
+        final uri = Uri.tryParse(inputUrl);
+        if (uri == null || !uri.hasScheme) {
+          throw Exception("Invalid repo URL");
+        }
+
+        final normalizedUrl = inputUrl.replaceAll(RegExp(r'/+$'), '');
+
+        final repos = loadRepos(type);
+        if (repos.any((r) => r.url == normalizedUrl)) {
+          return;
+        }
+
+        final index = await fetchTachiyomiRepoIndex(repoClient, normalizedUrl);
+        final parsed = await compute(parseIndexIsolate, (
+          index.body,
+          index.url,
+          type,
+        ));
+
+        final repo = Repo(
+          name: repoNameFromUrl(repoUrl),
+          url: index.url.endsWith('.pb') ? index.url : normalizedUrl,
+          extensions: parsed.length.toString(),
+        );
+        final updatedRepos = List<Repo>.from(repos)..add(repo);
+        saveRepos(updatedRepos, type);
+        state(type).repos.value = updatedRepos;
+        await selectRepo(repo, type);
+      } catch (e) {
+        Logger.log("Failed to add repo $repoUrl: $e");
+        rethrow;
+      }
+    });
+  }
+
+  @override
+  Future<List<Source>> fetchRepo(Repo repo, ItemType type) async {
+    try {
+      final index = await fetchTachiyomiRepoIndex(repoClient, repo.url);
+      final extensions = await compute(parseIndexIsolate, (
+        index.body,
+        index.url,
+        type,
+      ));
+      if (refreshExtensionCountOnFetch) {
+        await updateRepoExtensionCount(repo, type, extensions.length);
+      }
+      return extensions;
+    } catch (e) {
+      Logger.log("Failed to fetch repo ${repo.url}: $e");
+      return const [];
+    }
+  }
+
+  @override
+  void detectUpdates(List<Source> available, ItemType type) =>
+      detectTachiyomiUpdates(this, available, type);
+}

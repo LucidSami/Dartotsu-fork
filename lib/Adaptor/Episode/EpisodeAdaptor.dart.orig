@@ -1,0 +1,67 @@
+        ),
+      ),
+    );
+  }
+
+  return Column(
+    children: List.generate(
+      videos.length,
+      (index) {
+        final item = videos[index];
+
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 4,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              saveCustomData(
+                lastSourceKey,
+                item.title ?? item.quality,
+              );
+
+              onTapCallback?.call();
+              Navigator.pop(context);
+
+              navigateToPage(
+                context,
+                MediaPlayer(
+                  media: mediaData,
+                  index: index,
+                  videos: videos,
+                  currentEpisode: episode,
+                  source: source,
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.title ?? item.quality,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.play_arrow,
+                    size: 24,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}

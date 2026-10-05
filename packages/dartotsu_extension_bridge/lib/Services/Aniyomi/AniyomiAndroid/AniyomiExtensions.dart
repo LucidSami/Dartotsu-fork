@@ -1,0 +1,580 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:install_plugin/install_plugin.dart';
+import 'package:installed_apps/installed_apps.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+
+import '../../../Extensions/DownloadablePlugin.dart';
+import '../../../Extensions/ExtensionBridge.dart';
+import '../../../Extensions/ExtensionSettings.dart';
+import '../../../Logger.dart';
+import '../../../NetworkClient.dart';
+import '../../../Settings/KvStore.dart';
+import '../../../dartotsu_extension_bridge.dart';
+import '../../Network.dart';
+import '../../Shared/TachiyomiRepo.dart';
+import '../AniyomiSourceMethods.dart';
+import 'Models/Source.dart';
+
+class AniyomiExtensions extends Extension with TachiyomiRepoBackend {
+  final _client = MClient.init();
+
+  @override
+  http.Client get repoClient => _client;
+
+  @override
+  List<Source> Function((Uint8List body, String repoUrl, ItemType type))
+  get parseIndexIsolate => _parseExtensions;
+
+  @override
+  String get id => 'aniyomi';
+
+  @override
+  String get name => 'Aniyomi';
+
+  @override
+  bool get supportsNovel => false;
+
+  @override
+  String get icon =>
+      "packages/dartotsu_extension_bridge/assets/images/aniyomi.png";
+
+  @override
+  (Type, SourceMethods Function(Source)) get sourceMethodFactories => (
+    ASource,
+    (source) =>
+        AniyomiSourceMethods(source as ASource, MethodChannelBridge(platform)),
+  );
+
+  @override
+  DownloadablePlugin plugin = AniyomiPlugin();
+  final platform = const MethodChannel('aniyomiExtensionBridge');
+
+  @override
+  Future<bool> onInitialize() async {
+    if (Platform.isAndroid) {
+      plugin.installed.value = true; // Built-in on Android
+    } else {
+      plugin.installed.value = await plugin.isInstalled();
+      if (!plugin.installed.value) return false;
+    }
+
+    try {
+      final filePath = await plugin.getPath();
+      await platform.invokeMethod('loadPlugin', {"path": filePath});
+    } catch (_) {}
+
+    try {
+      await BridgeChannels.init();
+    } catch (_) {}
+
+    var context = DartotsuExtensionBridge.context;
+    if (context.network != null) {
+      try {
+        await platform.invokeMethod(
+          'initClient',
+          jsonEncode({
+            'dns': context.network?.dns,
+            'proxy': context.network?.proxy,
+            'userAgent': context.network?.userAgent,
+          }),
+        );
+      } catch (_) {
+        // initClient may not be implemented on all native backends
+      }
+    }
+    return true;
+  }
+
+  @override
+  Future<void> fetchInstalledAnimeExtensions() async {
+    await super.fetchInstalledAnimeExtensions();
+
+    anime.installed.value = await _loadInstalled(
+      'getInstalledAnimeExtensions',
+      ItemType.anime,
+    );
+  }
+
+  @override
+  Future<void> fetchInstalledMangaExtensions() async {
+    await super.fetchInstalledMangaExtensions();
+
+    manga.installed.value = await _loadInstalled(
+      'getInstalledMangaExtensions',
+      ItemType.manga,
+    );
+  }
+
+  @override
+  Future<void> fetchAnimeExtensions() async {
+    await super.fetchAnimeExtensions();
+    anime.available.value = await fetchExtensions(ItemType.anime);
+  }
+
+  @override
+  Future<void> fetchMangaExtensions() async {
+    await super.fetchMangaExtensions();
+    manga.available.value = await fetchExtensions(ItemType.manga);
+  }
+
+  final Map<String, Stream<double>> _installsInFlight = {};
+
+  @override
+  Stream<double> installSource(Source source) {
+    final id = (source as ASource).id;
+
+    // Without this, a double-tap (or install racing an update for the same
+    // source) runs two independent download+write sequences against the
+    // same target file/path concurrently - interleaved writes can corrupt
+    // the APK, and the loser's post-install cleanup can delete the
+    // winner's file out from under it. The stream is broadcast, so a
+    // concurrent caller shares the same in-flight operation and progress.
+    if (id != null) {
+      final inFlight = _installsInFlight[id];
+      if (inFlight != null) return inFlight;
+    }
+
+    final stream = progressStream((report) async {
+      try {
+        await _installSourceImpl(source, report);
+      } finally {
+        if (id != null) _installsInFlight.remove(id);
+      }
+    });
+
+    if (id != null) {
+      _installsInFlight[id] = stream;
+    }
+
+    return stream;
+  }
+
+  /// Streams [response] to [file], updating `installProgress[progressId]`
+  /// (ambient GetX state) and calling [report] (this operation's own
+  /// progress stream) as bytes arrive, once the content length is known.
+  Future<void> _writeWithProgress(
+    http.StreamedResponse response,
+    File file,
+    String? progressId,
+    ItemType type,
+    void Function(double) report,
+  ) async {
+    final sink = file.openWrite();
+    final total = response.contentLength;
+    var received = 0;
+
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+
+        if (total != null && total > 0) {
+          final fraction = received / total;
+          if (progressId != null) {
+            state(type).installProgress[progressId] = fraction;
+          }
+          report(fraction);
+        }
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+  }
+
+  Future<void> _installSourceImpl(
+    Source source,
+    void Function(double) report,
+  ) async {
+    final aSource = source as ASource;
+    final isPrivate = false; // Always use shared installation for Android
+    final type = source.itemType!;
+    if (aSource.apkUrl == null) {
+      throw Exception('Source APK URL is required for installation.');
+    }
+
+    final progressId = aSource.id;
+    if (progressId != null) {
+      state(type).installProgress[progressId] = 0.0;
+    }
+
+    try {
+      final packageName =
+          aSource.pkgName ??
+          aSource.apkUrl!.split('/').last.replaceAll('.apk', '');
+
+      final apkFileName = '$packageName.apk';
+
+      final request = http.Request('GET', Uri.parse(aSource.apkUrl!));
+
+      final response = await _client.send(request);
+
+      if (response.statusCode != 200) {
+        throw Exception('Extension download failed (${response.statusCode})');
+      }
+
+      if (isPrivate) {
+        final extDir = await DartotsuExtensionBridge.context.getDirectory(
+          subPath: 'bridge/aniyomi-extensions/${aSource.itemType?.name ?? 'anime'}',
+          useSystemPath: false,
+          useCustomPath: true,
+        );
+
+        if (extDir == null) {
+          throw Exception('Failed to get extension directory');
+        }
+
+        // Native AnimeExtensionLoader expects APKs inside 'exts' subdirectory
+        final extsDir = Directory(path.join(extDir.path, 'exts'));
+        await extsDir.create(recursive: true);
+
+        final file = File(path.join(extsDir.path, apkFileName));
+
+        await _writeWithProgress(response, file, progressId, type, report);
+
+        Logger.log('Installed PRIVATE extension: ${aSource.pkgName}');
+      } else {
+        final tempDir = await getTemporaryDirectory();
+
+        final apkFile = File(path.join(tempDir.path, apkFileName));
+
+        await _writeWithProgress(response, apkFile, progressId, type, report);
+
+        bool installedInternal = false;
+        try {
+          final res = await platform.invokeMethod<bool>('installSourceInternal', {
+            'apkPath': apkFile.path,
+            'isAnime': type == ItemType.anime,
+          });
+          installedInternal = res == true;
+        } catch (e) {
+          Logger.log('Internal installation failed, falling back to system installer: $e');
+        }
+
+        if (!installedInternal) {
+          final result = await InstallPlugin.installApk(
+            apkFile.path,
+            appId: '',
+          );
+
+          if (result['isSuccess'] != true) {
+            throw Exception(
+              'Installation failed: '
+              '${result['errorMessage'] ?? 'Unknown error'}',
+            );
+          }
+          Logger.log('Installed SHARED extension: $packageName');
+        } else {
+          Logger.log('Installed INTERNAL extension: $packageName');
+        }
+
+        if (await apkFile.exists()) {
+          await apkFile.delete();
+        }
+      }
+
+      final avail = state(type).available;
+
+      avail.value = avail.value.where((e) => e.id != aSource.id).toList();
+
+      switch (aSource.itemType) {
+        case ItemType.anime:
+          await fetchInstalledAnimeExtensions();
+          break;
+
+        case ItemType.manga:
+          await fetchInstalledMangaExtensions();
+          break;
+
+        case ItemType.novel:
+          break;
+
+        default:
+          throw Exception('Unsupported item type: ${source.itemType}');
+      }
+      final raw = state(type).rawAvailable.value;
+      detectUpdates(raw, type);
+    } catch (e) {
+      Logger.log('Error installing source: $e');
+      rethrow;
+    } finally {
+      if (progressId != null) {
+        state(type).installProgress.remove(progressId);
+      }
+    }
+  }
+
+  @override
+  Future<void> uninstallSource(Source source) async {
+    final s = source as ASource;
+    final type = source.itemType!;
+    // Resolve a package name without dereferencing a possibly-null apkUrl: an
+    // installed source loaded from the native side may not carry apkUrlOverride,
+    // and the derived getter can be null.
+    final fallbackPkg =
+        s.pkgName ??
+        s.apkName?.replaceAll('.apk', '') ??
+        s.apkUrl?.split('/').last.replaceAll('.apk', '') ??
+        s.id ??
+        '';
+    try {
+      if (s.isShared == false) {
+        try {
+          await platform.invokeMethod<bool>('uninstallSourceInternal', {
+            'packageName': fallbackPkg,
+            'isAnime': type == ItemType.anime,
+          });
+        } catch (_) {}
+
+        final baseDir = await DartotsuExtensionBridge.context.getDirectory(
+          subPath: 'bridge/aniyomi-extensions/${type.toString()}',
+          useSystemPath: false,
+          useCustomPath: true,
+        );
+
+        final apkFileName = s.apkName ?? '$fallbackPkg.apk';
+        final file = File(path.join(baseDir!.path, apkFileName));
+
+        if (await file.exists()) {
+          await file.delete();
+          Logger.log('Deleted private extension: ${s.pkgName}');
+        } else {
+          Logger.log('Private extension file not found: ${s.pkgName}');
+        }
+        final raw = state(type).rawAvailable.value;
+        final installed = state(type).installed.value;
+        final installedIds = installed.map((e) => e.id).toSet();
+
+        state(type).available.value = List.unmodifiable(
+          raw.where((e) => !installedIds.contains(e.id)),
+        );
+
+        switch (type) {
+          case ItemType.anime:
+            await fetchInstalledAnimeExtensions();
+            break;
+          case ItemType.manga:
+            await fetchInstalledMangaExtensions();
+            break;
+          case ItemType.novel:
+            break;
+        }
+        detectUpdates(raw, type);
+        return;
+      }
+
+      final packageName = s.pkgName;
+      if (packageName == null || packageName.isEmpty) {
+        throw Exception('Package name is required for uninstall.');
+      }
+
+      final isInstalled =
+          await InstalledApps.isAppInstalled(packageName) ?? false;
+
+      if (!isInstalled) {
+        // The APK isn't actually present (install failed partway, or it was
+        // removed outside the app) - still restore `available`/detectUpdates
+        // the same way the two paths below do, instead of leaving the
+        // source missing from both lists until an unrelated full refresh.
+        state(type).installed.value = state(
+          type,
+        ).installed.value.where((e) => e.id != s.id).toList();
+
+        final raw = state(type).rawAvailable.value;
+        final installed = state(type).installed.value;
+        final installedIds = installed.map((e) => e.id).toSet();
+
+        state(type).available.value = List.unmodifiable(
+          raw.where((e) => !installedIds.contains(e.id)),
+        );
+
+        switch (type) {
+          case ItemType.anime:
+            await fetchInstalledAnimeExtensions();
+            break;
+          case ItemType.manga:
+            await fetchInstalledMangaExtensions();
+            break;
+          case ItemType.novel:
+            break;
+        }
+        detectUpdates(raw, type);
+        return;
+      }
+
+      final success = await InstalledApps.uninstallApp(packageName) ?? false;
+      if (!success) {
+        throw Exception('Failed to initiate uninstallation for: $packageName');
+      }
+
+      final timeout = const Duration(seconds: 10);
+      final start = DateTime.now();
+
+      while (DateTime.now().difference(start) < timeout) {
+        final stillInstalled =
+            await InstalledApps.isAppInstalled(packageName) ?? false;
+        if (!stillInstalled) break;
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      final finalCheck =
+          await InstalledApps.isAppInstalled(packageName) ?? false;
+      if (finalCheck) {
+        throw Exception('Uninstallation timed out or was cancelled by user.');
+      }
+
+      Logger.log('Uninstalled shared extension: $packageName');
+
+      final raw = state(type).rawAvailable.value;
+      final installed = state(type).installed.value;
+      final installedIds = installed.map((e) => e.id).toSet();
+
+      state(type).available.value = List.unmodifiable(
+        raw.where((e) => !installedIds.contains(e.id)),
+      );
+
+      switch (type) {
+        case ItemType.anime:
+          await fetchInstalledAnimeExtensions();
+          break;
+        case ItemType.manga:
+          await fetchInstalledMangaExtensions();
+          break;
+        case ItemType.novel:
+          break;
+      }
+      detectUpdates(raw, type);
+    } catch (e) {
+      Logger.log('Error uninstalling source: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Stream<double> updateSource(Source source) => installSource(source);
+
+  @override
+  Set<String> get schemes => {"aniyomi", "tachiyomi"};
+
+  @override
+  void handleSchemes(Uri uri) {
+    final url = uri.queryParameters["url"];
+    if (url != null && url.isNotEmpty) {
+      addRepo(url, uri.scheme == "aniyomi" ? ItemType.anime : ItemType.manga);
+    }
+  }
+
+  @override
+  List<ExtensionSetting> settings(BuildContext context) {
+    return [
+      ExtensionSetting(
+        name: "Install Extensions Privately",
+        description:
+            "Install extensions in a private directory (extensions won't be visible to other apps)",
+        type: ExtensionSettingType.switchType,
+        isChecked: getVal('aniyomiInstallPrivate') ?? false,
+        onSwitchChange: (value) => setVal('aniyomiInstallPrivate', value),
+        icon: Icons.lock_outline,
+      ),
+    ];
+  }
+
+  Future<List<Source>> _loadInstalled(String method, ItemType type) async {
+    try {
+      final result = await platform.invokeMethod(
+        method,
+        "",
+      );
+
+      if (result == null) return [];
+
+      List<dynamic> rawList;
+      if (result is String) {
+        if (result.isEmpty) return [];
+        rawList = jsonDecode(result);
+      } else if (result is List) {
+        rawList = result;
+      } else {
+        return [];
+      }
+
+      final parsed = rawList
+          .map((e) {
+            final map = Map<String, dynamic>.from(e as Map);
+            map['itemType'] = type.index;
+            final src = ASource.fromJson(map)..managerId = 'aniyomi';
+            src.itemType = type;
+            return src;
+          })
+          .toList(growable: false);
+
+      final Map<String, List<ASource>> grouped = {};
+      for (final s in parsed) {
+        final key = s.pkgName ?? s.name ?? "unknown";
+        grouped.putIfAbsent(key, () => []).add(s);
+      }
+
+      final filtered = <ASource>[];
+      for (final group in grouped.values) {
+        if (group.length > 1) {
+          final allSource = group.firstWhere((s) => s.lang == 'all',
+              orElse: () => group.firstWhere((s) => s.lang == 'en',
+                  orElse: () => group.first));
+          filtered.add(allSource);
+        } else {
+          filtered.add(group.first);
+        }
+      }
+
+      return filtered;
+    } catch (e, st) {
+      Logger.log('Error in Aniyomi _loadInstalled($method, $type): $e\n$st');
+      return [];
+    }
+  }
+
+  static List<ASource> _parseExtensions(
+    (Uint8List body, String repoUrl, ItemType itemType) args,
+  ) => parseTachiyomiIndexBytes<ASource>(
+    args.$1,
+    args.$2,
+    args.$3,
+    prefixes: const {
+      'Aniyomi: ': ItemType.anime,
+      'Tachiyomi: ': ItemType.manga,
+    },
+    factory: _sourceFromEntry,
+  );
+
+  static ASource _sourceFromEntry(TachiyomiRepoEntry e) => ASource(
+    id: e.id,
+    name: e.name,
+    pkgName: e.pkgName,
+    apkName: e.apkName,
+    lang: e.lang,
+    version: e.version,
+    isNsfw: e.isNsfw,
+    itemType: e.itemType,
+    repo: e.repo,
+    iconUrl: e.iconUrl,
+    apkUrlOverride: e.apkUrl,
+    jarUrl: e.jarUrl,
+    managerId: 'aniyomi',
+    isShared: false,
+  );
+}
+
+class AniyomiPlugin extends DownloadablePlugin {
+  @override
+  String get name => "aniyomiAndroid";
+
+  @override
+  String get fileName => "aniyomiAndroid-plugin.apk";
+}

@@ -1,0 +1,180 @@
+package com.aayush262.dartotsu_extension_bridge.aniyomi
+
+import com.aayush262.dartotsu_extension_bridge.logger.Logger
+import com.aayush262.dartotsu_extension_bridge.util.ExtensionConvert
+import com.aayush262.dartotsu_extension_bridge.util.PackageTools
+import eu.kanade.tachiyomi.extension.manga.model.MangaExtension
+import eu.kanade.tachiyomi.source.CatalogueSource
+import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.SourceFactory
+import java.io.File
+import kotlin.collections.first
+import kotlin.collections.orEmpty
+
+actual object MangaExtensionLoader {
+
+    const val EXTENSION_FEATURE = "tachiyomi.extension"
+    const val METADATA_SOURCE_CLASS = "tachiyomi.extension.class"
+    const val METADATA_SOURCE_FACTORY = "tachiyomi.extension.factory"
+    const val METADATA_NSFW = "tachiyomi.extension.nsfw"
+
+    const val METADATA_NAME = "tachiyomix.name"
+    const val METADATA_EXTENSION_LIB = "tachiyomix.extensionLib"
+    const val METADATA_CONTENT_WARNING = "tachiyomix.contentWarning"
+    private const val METADATA_HAS_README = "tachiyomi.extension.hasReadme"
+    private const val METADATA_HAS_CHANGELOG = "tachiyomi.extension.hasChangelog"
+
+    const val LIB_VERSION_MIN = 1.3
+
+    const val LIB_VERSION_MAX = 1.6
+    @Synchronized  // two concurrent getInstalled* polls raced APK->jar conversion
+    actual fun loadExtensions(path: String): Map<MangaExtension.Installed, String> {
+        val dir = File(path)
+
+        if (!dir.exists() || !dir.isDirectory) {
+            return emptyMap()
+        }
+
+        val apks = dir.listFiles()
+            ?.filter { it.isFile && it.extension == "apk" }
+            ?: emptyList()
+
+        val loaded = ExtensionConvert.parallel(apks, { it.name }) { apk ->
+            loadExtensionInternal(apk) to apk.absolutePath
+        }
+
+        val byPackage = mutableMapOf<String, Pair<MangaExtension.Installed, String>>()
+        for ((ext, apkPath) in loaded) {
+            val existing = byPackage[ext.pkgName]
+            if (existing == null || ext.versionCode > existing.first.versionCode) {
+                byPackage[ext.pkgName] = ext to apkPath
+            }
+        }
+
+        Logger.log("Loaded ${byPackage.size} extensions")
+
+        return byPackage.values.associate { it.first to it.second }
+    }
+
+    private fun loadExtensionInternal(apkFile: File): MangaExtension.Installed {
+        val apkPath = apkFile.absolutePath
+        val apkInfo = PackageTools.getPackageInfo(apkPath)
+        val packageInfo = apkInfo.packageInfo
+        val apkParser = apkInfo.apkFile
+
+        require(packageInfo.reqFeatures.orEmpty().any { it.name == EXTENSION_FEATURE }) {
+            "Not an extension: ${apkFile.name}"
+        }
+        val iconDir = File(apkFile.parentFile, "icons")
+
+        val iconFile = PackageTools.extractIcon(
+            apkParser,
+            apkFile,
+            iconDir,
+            packageInfo.packageName
+        )
+
+        val iconPath = iconFile?.absolutePath
+        val versionName = packageInfo.versionName!!
+        val versionCode = packageInfo.versionCode.toLong()
+
+        val libVersion = versionName.substringBeforeLast('.').toDouble()
+
+        require(libVersion in LIB_VERSION_MIN..LIB_VERSION_MAX) {
+            "Unsupported lib version: $libVersion"
+        }
+
+        val meta = packageInfo.applicationInfo.metaData
+
+
+        val isNsfw = meta.getString(METADATA_NSFW) == "1"
+        val hasReadme = meta.getString(METADATA_HAS_README) == "1"
+        val hasChangelog = meta.getString(METADATA_HAS_CHANGELOG) == "1"
+
+        val sourceClass =
+            meta
+                .getString(METADATA_SOURCE_CLASS)!!
+                .trim()
+
+        val className =
+            if (sourceClass.startsWith(".")) {
+                packageInfo.packageName + sourceClass
+            } else {
+                sourceClass
+            }
+
+
+        val jarDir = File(apkFile.parentFile, "jar")
+        if (!jarDir.exists()) {
+            jarDir.mkdirs()
+        }
+
+        val jarFile = File(jarDir, "${packageInfo.packageName}.jar")
+
+        val shouldBuildJar = when {
+            !jarFile.exists() -> true
+            apkFile.lastModified() > jarFile.lastModified() -> true
+            else -> false
+        }
+
+        if (shouldBuildJar) {
+            try {
+                PackageTools.dex2jar(apkPath, jarFile.absolutePath)
+                PackageTools.extractAssetsFromApk(apkPath, jarFile.absolutePath)
+                // The jar at this path may have been loaded before (e.g. the
+                // previous version of this extension) - drop the stale
+                // classloader so the rebuilt jar's classes are actually seen.
+                PackageTools.invalidateClassLoader(jarFile.absolutePath)
+            } catch (e: Exception) {
+                Logger.log("Failed to build jar for ${apkFile.name}: ${e.message}")
+                throw e
+            }
+        }
+
+        val sources = mutableListOf<Source>()
+
+
+        val result = when (val instance = PackageTools.loadExtensionSources(jarFile.absolutePath, className)) {
+            is Source -> listOf(instance)
+            is SourceFactory -> instance.createSources()
+            else -> error("Unknown source type: ${instance.javaClass}")
+        }
+
+        sources += result
+
+
+        val catalogueSources = sources.filterIsInstance<CatalogueSource>()
+        val langs = catalogueSources.map { it.lang }.toSet()
+
+        val lang = when (langs.size) {
+            0 -> ""
+            1 -> langs.first()
+            else -> "all"
+        }
+        val name =
+            packageInfo.applicationInfo.nonLocalizedLabel
+                ?.toString()
+                ?.substringAfter("Tachiyomi: ")
+                ?: packageInfo.packageName
+        apkParser.close()
+        return MangaExtension.Installed(
+            name = name,
+            pkgName = packageInfo.packageName,
+            versionName = versionName,
+            versionCode = versionCode,
+            libVersion = libVersion,
+            lang = lang,
+            isNsfw = isNsfw,
+            hasReadme = hasReadme,
+            hasChangelog = hasChangelog,
+            sources = sources,
+            iconUrl = iconPath,
+            pkgFactory = meta.getString(METADATA_SOURCE_FACTORY),
+            isUnofficial = true,
+            isShared = false,
+        )
+    }
+
+}
+
+

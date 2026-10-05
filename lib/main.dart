@@ -1,0 +1,401 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
+
+import 'package:app_links/app_links.dart';
+import 'package:dartotsu/Functions/Extensions.dart';
+import 'package:dartotsu/Functions/Function.dart';
+import 'package:dartotsu/Screens/Anime/Player/MpvConfig.dart';
+import 'package:dartotsu/Screens/Login/LoginScreen.dart';
+import 'package:dartotsu/Screens/Manga/MangaScreen.dart';
+import 'package:dartotsu_extension_bridge/dartotsu_extension_bridge.dart';
+import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:get/get.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
+import 'package:isar_community/isar.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:provider/provider.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:rhttp/rhttp.dart';
+
+import 'Api/TypeFactory.dart';
+import 'Theme/LanguageSwitcher.dart';
+import 'Functions/AppShortcuts.dart';
+import 'Functions/string_extensions.dart';
+import 'NetworkManager/NetworkBridge.dart';
+import 'NetworkManager/NetworkManager.dart';
+import 'Preferences/PrefManager.dart';
+import 'Screens/Anime/AnimeScreen.dart';
+import 'Screens/Error/ErrorScreen.dart';
+import 'Screens/Home/HomeScreen.dart';
+import 'Screens/HomeNavBar.dart';
+import 'Screens/HomeNavbarMobile.dart';
+import 'Screens/Onboarding/OnboardingScreen.dart';
+import 'Screens/Settings/SettingsPlayerScreen.dart';
+import 'Services/MediaService.dart';
+import 'Services/ServiceSwitcher.dart';
+import 'Theme/ThemeManager.dart';
+import 'Theme/ThemeProvider.dart';
+import 'Widgets/CachedNetworkImage.dart';
+import 'l10n/app_localizations.dart';
+import 'logger.dart';
+
+late Isar isar;
+
+void main(List<String> args) async {
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      PaintingBinding.instance.imageCache.maximumSize = 500;
+      PaintingBinding.instance.imageCache.maximumSizeBytes = 150 * 1024 * 1024;
+      FlutterError.onError = (FlutterErrorDetails details) {
+        FlutterError.presentError(details);
+        handleError(
+          details.exception,
+          details.stack,
+          other: details.toString(),
+          softCrash: true,
+        );
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        handleError(error, stack);
+        return true;
+      };
+      ErrorWidget.builder = (FlutterErrorDetails details) {
+        return ErrorScreen(
+          error: details.exception.toString(),
+          stackTrace: details.stack?.toString() ?? details.toString(),
+          softCrash: true,
+        );
+      };
+      Get.log = (text, {isError = false}) => debugPrint(text);
+      await init();
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ThemeNotifier()),
+            ChangeNotifierProvider(create: (_) => MediaServiceProvider()),
+          ],
+          child: const MyApp(),
+        ),
+      );
+    },
+    (error, stackTrace) {
+      debugPrint('Uncaught error: $error\n$stackTrace');
+    },
+    zoneSpecification: ZoneSpecification(
+      print: (Zone self, ZoneDelegate parent, Zone zone, String line) {
+        Logger.log(line);
+        parent.print(zone, line);
+      },
+    ),
+  );
+}
+
+Future init() async {
+  await Rhttp.init();
+  await PrefManager.init();
+  final client = Get.put(NetworkManager());
+  final cookieManager = client.cookieManager;
+
+  await DartotsuExtensionBridge.init(
+    getDirectory: PrefManager.getDirectory,
+    isarInstance: PrefManager.dartotsuPreferences,
+    http: client.compatibleClient,
+    network: AppBridgeNetwork(cookieManager),
+    onLog: (message, show) {
+      debugPrint("[Bridge LOGS] $message");
+      if (show) {
+        snackString(message);
+      }
+    },
+  );
+
+  await Logger.init();
+  await MpvConf.init();
+  MediaService.init();
+  TypeFactory.init();
+
+  MediaKit.ensureInitialized();
+  initializeDateFormatting();
+  final supportedLocales = DateFormat.allLocalesWithSymbols();
+  for (var locale in supportedLocales) {
+    initializeDateFormatting(locale);
+  }
+
+  initDeepLinkListener();
+  initIntentListener();
+}
+
+void initIntentListener() async {
+  if (!Platform.isAndroid) return;
+
+  final intent = ReceiveSharingIntent.instance;
+
+  void handleFiles(List<SharedMediaFile> files) {
+    if (files.isEmpty) return;
+
+    final videos = files
+        .where((f) => f.path.isMediaVideo())
+        .map((f) => f.path)
+        .toList();
+
+    if (videos.isEmpty) return;
+
+    openPlayer(Get.context!, videos);
+  }
+
+  intent.getMediaStream().listen(handleFiles);
+
+  final initialFiles = await intent.getInitialMedia();
+  if (initialFiles.isNotEmpty) {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => handleFiles(initialFiles),
+    );
+    await intent.reset();
+  }
+}
+
+void initDeepLinkListener() async {
+  final appLink = AppLinks();
+  try {
+    final initialUri = await appLink.getInitialLink();
+    if (initialUri != null) _handleDeepLink(initialUri);
+  } catch (err) {
+    snackString('Error getting initial deep link: $err');
+  }
+
+  appLink.uriLinkStream.listen(
+    (uri) => _handleDeepLink(uri),
+    onError: (err) => snackString('Error Opening link: $err'),
+  );
+}
+
+void _handleDeepLink(Uri uri) {
+  if (uri.host != "add-repo") return;
+  bool isRepoAdded = false;
+  final manager = Get.find<ExtensionManager>().managers;
+  for (final handler in manager) {
+    if (handler.schemes.contains(uri.scheme.toLowerCase())) {
+      handler.handleSchemes(uri);
+      isRepoAdded = true;
+      break;
+    }
+  }
+  snackString(
+    isRepoAdded
+        ? "Added Repo Links Successfully!"
+        : "Missing or invalid parameters in the link.",
+  );
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themeManager = Provider.of<ThemeNotifier>(context);
+    final isDarkMode = themeManager.isDarkMode;
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
+    );
+    return Listener(
+      onPointerDown: (event) {
+        if (event.buttons == kBackMouseButton) {
+          if (Navigator.canPop(Get.context!)) Get.back();
+        }
+      },
+      child: Focus(
+        autofocus: true,
+        focusNode: FocusNode(),
+        onKeyEvent: (_, event) => appShortcuts(event, context)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored,
+        child: DynamicColorBuilder(
+          builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+            return GetMaterialApp(
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: Locale(loadData(PrefName.defaultLanguage)),
+              title: 'Dartotsu',
+              themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+              debugShowCheckedModeBanner: false,
+              enableLog: true,
+              theme: getTheme(lightDynamic, themeManager),
+              darkTheme: getTheme(darkDynamic, themeManager),
+              home: !loadCustomData("initialLoaded", defaultValue: false)!
+                  ? const MainScreen()
+                  : const OnboardingScreen(),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  MainScreenState createState() => MainScreenState();
+}
+
+late FloatingBottomNavBar navbar;
+
+class MainScreenState extends State<MainScreen> {
+  final _selectedIndex = 1.obs;
+
+  void _onTabSelected(int index) => _selectedIndex.value = index;
+
+  @override
+  void dispose() {
+    DartotsuExtensionBridge.dispose();
+    super.dispose();
+  }
+
+  Widget get _navbar {
+    return Obx(() {
+      navbar = FloatingBottomNavBarMobile(
+        selectedIndex: _selectedIndex.value,
+        onTabSelected: _onTabSelected,
+      );
+      return navbar;
+    });
+  }
+
+  Widget _buildBackground(ThemeNotifier themeNotifier, MediaService service) {
+    if (!themeNotifier.useGlassMode) return const SizedBox.shrink();
+    var theme = Theme.of(context).colorScheme;
+    return Positioned.fill(
+      child: RepaintBoundary(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 2.0, sigmaY: 2.0, tileMode: TileMode.decal),
+                  child: Opacity(
+                    opacity: 0.8,
+                    child: Obx(
+                      () => cachedNetworkImage(
+                        imageUrl: service.data.bg.value.isNotEmpty
+                            ? service.data.bg.value
+                            : 'https://wallpapercat.com/download/1198914',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Gradient overlay at the bottom 75%
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: FractionallySizedBox(
+                heightFactor: 0.75,
+                widthFactor: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, theme.surface],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(MediaService service) {
+    return Obx(() {
+      final navItems = service.navBarItem;
+      if (_selectedIndex.value < 0 || _selectedIndex.value >= navItems.length) {
+        return const SizedBox();
+      }
+      
+      final label = navItems[_selectedIndex.value].label.toUpperCase();
+      
+      if (label == getString.anime.toUpperCase()) {
+        return const AnimeScreen();
+      } else if (label == getString.home.toUpperCase()) {
+        return service.data.token.value.isNotEmpty
+            ? const HomeScreen()
+            : const LoginScreen();
+      } else if (label == getString.manga.toUpperCase()) {
+        return const MangaScreen();
+      }
+      
+      return const SizedBox();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+    final service = context.currentService();
+    ThemedContainer(
+      context: context,
+      child: const Icon(Icons.search),
+      borderRadius: BorderRadius.circular(16.0),
+      padding: const EdgeInsets.all(4.0),
+    );
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          _buildBackground(themeNotifier, service),
+          Row(
+            children: [
+              if (!context.isPhone) SizedBox(width: 100, child: _navbar),
+              Expanded(child: _buildBody(service)),
+            ],
+          ),
+          if (context.isPhone) _navbar,
+          Positioned(
+            bottom: 92.bottomBar(),
+            right: 12,
+            child: GestureDetector(
+              onTap: () => service.searchScreen?.onSearchIconClick(context),
+              child: ThemedContainer(
+                context: context,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16.0),
+                  ),
+                  child: const Icon(Icons.search),
+                ),
+                borderRadius: BorderRadius.circular(16.0),
+                padding: const EdgeInsets.all(4.0),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

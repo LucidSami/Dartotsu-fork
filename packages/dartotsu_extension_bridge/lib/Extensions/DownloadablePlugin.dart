@@ -1,0 +1,378 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:get/get_rx/src/rx_types/rx_types.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+
+import '../AnymeXBridge.dart';
+import '../Logger.dart';
+import '../NetworkClient.dart';
+import '../Runtime/RuntimePaths.dart';
+import '../Settings/KvStore.dart';
+import '../dartotsu_extension_bridge.dart';
+
+abstract class DownloadablePlugin {
+  String get name;
+  String get fileName;
+  bool get isBuiltIn => Platform.isAndroid;
+
+  final RxBool installed = false.obs;
+  final RxBool availableInRepo = false.obs;
+  final _client = MClient.init();
+
+  String get _versionKey => "${name}_version";
+
+  final RxDouble progress = 0.0.obs;
+  final RxBool downloading = false.obs;
+
+  static const _indexUrlKey = "plugin_index_url";
+
+  static const _defaultIndexUrl =
+      "https://raw.githubusercontent.com/aayush2622/DartotsuExtensionBridge/refs/heads/master/plugins.json";
+
+  static String? _indexUrl;
+  static List<Map<String, dynamic>>? _cachedIndex;
+
+  static String get indexUrl => _indexUrl ??=
+      (getVal<String>(_indexUrlKey, defaultValue: _defaultIndexUrl) ??
+      _defaultIndexUrl);
+
+  static void setIndexUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || trimmed == indexUrl) return;
+
+    _indexUrl = trimmed;
+    setVal(_indexUrlKey, trimmed);
+
+    _cachedIndex = null;
+  }
+
+  static Future<List<Map<String, dynamic>>>? _loadingIndex;
+
+  static Future<List<Map<String, dynamic>>> _loadIndex(
+    http.Client client, {
+    bool forceRefresh = false,
+  }) {
+    if (forceRefresh) {
+      _cachedIndex = null;
+      _loadingIndex = null;
+    }
+
+    if (_cachedIndex != null) {
+      return Future.value(_cachedIndex!);
+    }
+
+    return _loadingIndex ??=
+        () async {
+          final url = indexUrl;
+          if (url.isEmpty) {
+            throw Exception("No plugin index URL set");
+          }
+
+          final res = await client.get(Uri.parse(url));
+          if (res.statusCode != 200) {
+            throw Exception("Failed to fetch plugin index (${res.statusCode})");
+          }
+
+          final decoded = jsonDecode(res.body);
+          if (decoded is! List) {
+            throw Exception("Plugin index is not a JSON array");
+          }
+
+          _cachedIndex = decoded.cast<Map<String, dynamic>>();
+          return _cachedIndex!;
+        }().whenComplete(() {
+          _loadingIndex = null;
+        });
+  }
+  // ---------------------------------------------------------------------
+
+  Future<Directory> get _dir async {
+    final dir = await DartotsuExtensionBridge.context.getDirectory(
+      subPath: 'bridge/plugins',
+      useSystemPath: true,
+      useCustomPath: false,
+    );
+
+    if (dir == null) throw Exception("Plugin dir null");
+
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  Future<File> get _file async {
+    final dir = await _dir;
+    return File(p.join(dir.path, fileName));
+  }
+
+  Future<bool> isInstalled() async {
+    if (isBuiltIn) return true;
+    if (Platform.isAndroid) {
+      // The unified anymex_runtime_host.apk handles ALL native backends.
+      // If it's loaded or the bridge file exists, all plugins are available.
+      if (await AnymeXRuntimeBridge.isLoaded() ||
+          AnymeXRuntimeBridge.controller.isReady.value) {
+        return true;
+      }
+      if (await AnymeXRuntimeBridge.isLoadedFromStorage()) {
+        return true;
+      }
+      // Check if the bundled runtime file exists on disk
+      try {
+        final defaultPath = await RuntimePaths().bridgePath;
+        if (await File(defaultPath).exists()) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return (await _file).exists();
+  }
+
+  Future<String> getPath() async {
+    final file = await _file;
+    return file.path;
+  }
+
+  Map<String, dynamic>? _cachedMeta;
+
+  Future<Map<String, dynamic>?> fetchRemote({bool forceRefresh = false}) async {
+    if (forceRefresh) _cachedMeta = null;
+    if (_cachedMeta != null) return _cachedMeta;
+
+    try {
+      final entries = await DownloadablePlugin._loadIndex(
+        _client,
+        forceRefresh: forceRefresh,
+      );
+      final entry = entries.firstWhere(
+        (e) => e["name"] == name,
+        orElse: () => const {},
+      );
+
+      if (entry.isEmpty) {
+        availableInRepo.value = false;
+        return _cachedMeta = null;
+      }
+
+      availableInRepo.value = true;
+      return _cachedMeta = entry;
+    } catch (e) {
+      Logger.log("$name index lookup failed: $e");
+      availableInRepo.value = false;
+      return _cachedMeta = null;
+    }
+  }
+
+  Future<bool> checkAvailability() async {
+    final remote = await fetchRemote(forceRefresh: true);
+    return remote != null;
+  }
+
+  Future<void> download() async {
+    if (isBuiltIn) return;
+    if (await isInstalled() || downloading.value) return;
+
+    final remote = await fetchRemote();
+    if (remote == null) {
+      Logger.log("$name not found in plugin index", show: true);
+      return;
+    }
+
+    downloading.value = true;
+    progress.value = 0;
+
+    Logger.log("Downloading $name plugin", show: true);
+
+    try {
+      await _download(remote["downloadUrl"], remote["versionCode"] ?? 0);
+      installed.value = true;
+    } catch (e) {
+      Logger.log("$name download failed: $e");
+      // Otherwise progress is left stuck at whatever partial fraction the
+      // failed attempt reached until the next successful download.
+      progress.value = 0;
+    } finally {
+      downloading.value = false;
+    }
+  }
+
+  Future<void> delete() async {
+    if (isBuiltIn) {
+      Logger.log("Cannot delete built-in plugin $name");
+      return;
+    }
+    final file = await _file;
+
+    if (await file.exists()) {
+      await file.delete();
+      Logger.log("$name plugin deleted");
+    }
+
+    setVal(_versionKey, 0);
+    installed.value = false;
+  }
+
+  Future<bool> checkForUpdate() async {
+    if (isBuiltIn) return false;
+    if (!await isInstalled()) return false;
+
+    final remote = await fetchRemote();
+    if (remote == null) return false;
+
+    final remoteVersion = remote["versionCode"] ?? 0;
+    final localVersion = getVal<int>(_versionKey) ?? 0;
+
+    final hasUpdate = remoteVersion > localVersion;
+
+    return hasUpdate;
+  }
+
+  Future<void> update() async {
+    if (isBuiltIn) return;
+    if (!await isInstalled() || downloading.value) return;
+
+    final remote = await fetchRemote();
+    if (remote == null) return;
+
+    final remoteVersion = remote["versionCode"] ?? 0;
+    final localVersion = getVal<int>(_versionKey) ?? 0;
+
+    if (remoteVersion <= localVersion) return;
+
+    Logger.log("$name updating → v$remoteVersion", show: true);
+
+    // download() reports progress via `downloading`/`progress`; update() ran
+    // the exact same underlying transfer silently, so a UI observing those
+    // two Rx values (e.g. a progress bar) never lit up for a background
+    // update even though bytes were moving.
+    downloading.value = true;
+    progress.value = 0;
+
+    try {
+      await _download(remote["downloadUrl"], remoteVersion);
+    } catch (e) {
+      Logger.log("$name update failed: $e");
+      progress.value = 0;
+      rethrow;
+    } finally {
+      downloading.value = false;
+    }
+  }
+
+  Future<void> autoUpdate() async {
+    if (isBuiltIn) return;
+    if (!await isInstalled()) return;
+
+    try {
+      final hasUpdate = await checkForUpdate();
+      if (hasUpdate) {
+        await update();
+      }
+    } catch (e) {
+      Logger.log("$name autoUpdate failed: $e");
+    }
+  }
+
+  String formatSize(int bytes) {
+    const kb = 1024;
+    const mb = kb * 1024;
+
+    if (bytes >= mb) return "${(bytes / mb).toStringAsFixed(1)} MB";
+    if (bytes >= kb) return "${(bytes / kb).toStringAsFixed(1)} KB";
+    return "$bytes B";
+  }
+
+  Future<void> _download(String url, int version) async {
+    final file = await _file;
+    final temp = File("${file.path}.tmp");
+
+    int retries = 0;
+    const maxRetries = 10;
+
+    while (true) {
+      var resumeFrom = await temp.exists() ? await temp.length() : 0;
+
+      final request = http.Request("GET", Uri.parse(url));
+
+      if (resumeFrom > 0) {
+        request.headers["Range"] = "bytes=$resumeFrom-";
+        Logger.log("Resuming $name from ${formatSize(resumeFrom)}");
+      }
+
+      try {
+        final response = await _client.send(request);
+
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          throw Exception("Download failed (${response.statusCode})");
+        }
+
+        // A 200 means the server ignored our Range header and is streaming the
+        // whole file from byte 0 — appending it to the existing partial would
+        // corrupt the archive. Only a 206 is a genuine resume.
+        final resuming = response.statusCode == 206 && resumeFrom > 0;
+        if (!resuming) resumeFrom = 0;
+
+        final sink = temp.openWrite(
+          mode: resuming ? FileMode.append : FileMode.write,
+        );
+
+        int received = resumeFrom;
+
+        final int? total = resuming
+            ? (response.contentLength == null
+                  ? null
+                  : resumeFrom + response.contentLength!)
+            : response.contentLength;
+
+        try {
+          await for (final chunk in response.stream) {
+            sink.add(chunk);
+            received += chunk.length;
+
+            if (total != null && total > 0) {
+              progress.value = received / total;
+            }
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+
+        if (total != null && received < total) {
+          throw Exception("Incomplete download");
+        }
+
+        try {
+          await temp.rename(file.path);
+        } on FileSystemException {
+          // Windows won't rename onto an existing file, and rename() can
+          // fail across filesystems - fall back to copy+delete. A crash
+          // between these two calls at least leaves the correct bytes at
+          // file.path (copy completed) rather than truncating it, which
+          // await temp.copy(...); await temp.delete(); on its own already
+          // achieves; the rename-first path just avoids the extra full
+          // copy in the common case.
+          await temp.copy(file.path);
+          await temp.delete();
+        }
+
+        setVal(_versionKey, version);
+        progress.value = 1.0;
+
+        Logger.log("$name:v$version installed", show: true);
+        return;
+      } catch (e) {
+        retries++;
+
+        Logger.log("$name download interrupted ($retries/$maxRetries): $e");
+
+        if (retries >= maxRetries) {
+          rethrow;
+        }
+
+        await Future.delayed(Duration(seconds: retries.clamp(1, 5)));
+      }
+    }
+  }
+}

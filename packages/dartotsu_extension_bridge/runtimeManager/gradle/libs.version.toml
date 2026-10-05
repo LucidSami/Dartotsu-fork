@@ -1,0 +1,33 @@
+[versions]
+kotlin = "2.4.0"
+shadow = "9.4.2"
+android-gradle = "9.2.1"
+
+compileSdk = "37"
+targetSdk = "36"
+minSdk = "24"
+
+java = "17"
+jvmTarget = "17"
+kotlinStdlib = "2.2.10"
+kotlinTest = "2.2.10"
+runner = "1.5.2"
+core = "1.5.0"
+junit = "1.1.5"
+[libraries]
+kotlin-stdlib = { group = "org.jetbrains.kotlin", name = "kotlin-stdlib", version.ref = "kotlinStdlib" }
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlinTest" }
+runner = { group = "androidx.test", name = "runner", version.ref = "runner" }
+core = { group = "androidx.test", name = "core", version.ref = "core" }
+junit = { group = "androidx.test.ext", name = "junit", version.ref = "junit" }
+[plugins]
+android-application = { id = "com.android.application", version.ref = "android-gradle" }
+android-library = { id = "com.android.library", version.ref = "android-gradle" }
+
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "android-gradle" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-lint = { id = "com.android.lint", version.ref = "android-gradle" }
