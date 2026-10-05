@@ -83,13 +83,19 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
     isAnime = media.anime != null ||
         (media.format != 'manga' && media.format != 'novel');
     status = getInitialStatus(media.userStatus, isAnime);
-    progressController =
-        TextEditingController(text: media.userProgress?.toString() ?? '??');
-    scoreController = TextEditingController(
-      text: media.userScore != null && media.userScore! > 0
-          ? (media.userScore! / 10).toString()
-          : "??",
-    );
+    final initialProgress =
+        (media.userProgress != null && media.userProgress! >= 0)
+            ? media.userProgress.toString()
+            : '';
+    progressController = TextEditingController(text: initialProgress);
+
+    final initialScore = (media.userScore != null && media.userScore! > 0)
+        ? (media.userScore! % 10 == 0
+            ? (media.userScore! ~/ 10).toString()
+            : (media.userScore! / 10).toString())
+        : '';
+    scoreController = TextEditingController(text: initialScore);
+
     if (!widget.isCompact) {
       noteController = TextEditingController(text: media.notes ?? "");
       repeatController =
@@ -97,8 +103,13 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
       startedAt = media.userStartedAt;
       completedAt = media.userCompletedAt;
     }
-    suffixText =
-        "/ ${media.anime != null ? (media.anime!.nextAiringEpisode != null && media.anime!.nextAiringEpisode != -1 ? media.anime!.nextAiringEpisode : media.anime!.totalEpisodes ?? "??") : media.manga?.totalChapters ?? "??"}";
+    final totalCount = media.anime != null
+        ? (media.anime!.nextAiringEpisode != null &&
+                media.anime!.nextAiringEpisode != -1
+            ? media.anime!.nextAiringEpisode
+            : media.anime!.totalEpisodes)
+        : media.manga?.totalChapters;
+    suffixText = "/ ${totalCount ?? '-'}";
   }
 
   @override
@@ -181,17 +192,31 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
   }
 
   Widget _buildProgressField(TextStyle labelStyle, TextStyle suffixStyle) {
+    var theme = Theme.of(context).colorScheme;
     return Row(
       children: [
         Expanded(
           child: TextField(
             controller: progressController,
             keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.next,
             style: labelStyle,
+            onTap: () {
+              if (progressController.text.isNotEmpty) {
+                progressController.selection = TextSelection(
+                  baseOffset: 0,
+                  extentOffset: progressController.text.length,
+                );
+              }
+            },
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             decoration: InputDecoration(
               labelText: "PROGRESS",
               labelStyle: labelStyle,
+              hintText: "0",
+              hintStyle: labelStyle.copyWith(
+                color: theme.onSurface.withOpacity(0.38),
+              ),
               suffixText: suffixText,
               suffixStyle: suffixStyle,
               prefixIcon: const Icon(Icons.add_circle_outline_rounded),
@@ -231,16 +256,30 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
   }
 
   Widget _buildScoreField(TextStyle labelStyle, TextStyle suffixStyle) {
+    var theme = Theme.of(context).colorScheme;
     return TextField(
       controller: scoreController,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textInputAction: TextInputAction.done,
       style: labelStyle,
+      onTap: () {
+        if (scoreController.text.isNotEmpty) {
+          scoreController.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: scoreController.text.length,
+          );
+        }
+      },
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^\d*(\.\d?)?$')),
+        FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
       ],
       decoration: InputDecoration(
         labelText: "SCORE",
         labelStyle: labelStyle,
+        hintText: "0",
+        hintStyle: labelStyle.copyWith(
+          color: theme.onSurface.withOpacity(0.38),
+        ),
         suffixText: "/ 10",
         suffixStyle: suffixStyle,
         prefixIcon: const Icon(Icons.star_rounded),
@@ -377,13 +416,21 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
   }
 
   Future<void> _onSave() async {
-    final score = double.tryParse(scoreController.text);
-    final progress = int.tryParse(progressController.text);
+    final scoreText = scoreController.text.trim();
+    final progressText = progressController.text.trim();
+    final score = double.tryParse(scoreText);
+    final progress = int.tryParse(progressText);
+
+    final int? finalScore = score != null
+        ? (score * 10).toInt().clamp(0, 100)
+        : (widget.media.userScore != null && widget.media.userScore! > 0
+            ? 0
+            : null);
 
     widget.media
       ..userStatus = statusToMal(status, isAnime)
       ..userProgress = progress
-      ..userScore = score != null ? (score * 10).toInt().clamp(0, 100) : null;
+      ..userScore = finalScore;
 
     if (!widget.isCompact) {
       widget.media
@@ -401,6 +448,10 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
   }
 
   Future<void> _onDelete() async {
+    widget.media
+      ..userStatus = null
+      ..userProgress = null
+      ..userScore = 0;
     Get.back();
     await TrackSyncManager.instance.syncDeleteFromList(
       media: widget.media,
