@@ -4,6 +4,7 @@ import 'package:get/get_state_manager/src/simple/get_controllers.dart';
 
 import '../../Api/Anilist/Anilist.dart';
 import '../../DataClass/Media.dart';
+import '../../Services/ApiCacheManager.dart';
 import '../../Services/MediaService.dart';
 
 class MediaListViewModel extends GetxController {
@@ -17,21 +18,64 @@ class MediaListViewModel extends GetxController {
     MediaService? service,
     bool force = false,
   }) async {
+    final serviceName = service?.getName.toLowerCase() ?? 'anilist';
+    final cacheKey = "${serviceName}_user_medialist_${anime ? 'anime' : 'manga'}_$userId";
+
+    // Cache-first hydration
+    if (!force && (mediaList.value == null || mediaList.value!.isEmpty)) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty && decoded.values.any((list) => list.isNotEmpty)) {
+            mediaList.value = decoded;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (mediaList.value != null && mediaList.value!.isNotEmpty && !force) return;
+
     try {
-      if (mediaList.value != null && !force) return;
-      isLoading.value = true;
+      if (mediaList.value == null || mediaList.value!.isEmpty) {
+        isLoading.value = true;
+      }
+      Map<String, List<Media>>? result;
       if (service?.data.query != null) {
-        mediaList.value = await service!.data.query!
-            .getMediaLists(anime: anime, userId: userId, sortOrder: sortOrder);
+        result = await service!.data.query!.getMediaLists(
+          anime: anime,
+          userId: userId,
+          sortOrder: sortOrder,
+          force: force,
+        );
       } else if (Anilist.query != null) {
-        mediaList.value = await Anilist.query!
-            .getMediaLists(anime: anime, userId: userId, sortOrder: sortOrder);
+        result = await Anilist.query!.getMediaLists(
+          anime: anime,
+          userId: userId,
+          sortOrder: sortOrder,
+          force: force,
+        );
       } else {
+        result = {};
+      }
+
+      if (result.isNotEmpty) {
+        mediaList.value = result;
+        try {
+          ApiCacheManager.instance.set(
+            cacheKey,
+            MediaMapWrapper(mediaMap: result).toJson(),
+            ttl: const Duration(minutes: 30),
+          );
+        } catch (_) {}
+      } else if (mediaList.value == null) {
         mediaList.value = {};
       }
     } catch (e) {
       debugPrint("Error loading media list: $e");
-      mediaList.value = {};
+      if (mediaList.value == null) {
+        mediaList.value = {};
+      }
     } finally {
       isLoading.value = false;
     }

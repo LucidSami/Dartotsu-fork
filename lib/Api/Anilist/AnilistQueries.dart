@@ -69,7 +69,8 @@ class AnilistQueries extends Queries {
   Future<Media?> getMedia(int id, {bool mal = false}) => _getMedia(id, mal: mal);
 
   @override
-  Future<Media?> mediaDetails(Media media) => _mediaDetails(media);
+  Future<Media?> mediaDetails(Media media, {bool force = false}) =>
+      _mediaDetails(media, force: force);
 
   @override
   Future<Map<String, List<Media>>> initHomePage({bool force = false}) =>
@@ -83,11 +84,13 @@ class AnilistQueries extends Queries {
     required bool anime,
     required int userId,
     String? sortOrder,
+    bool force = false,
   }) =>
       _getMediaLists(
         anime: anime,
         userId: userId,
         sortOrder: sortOrder,
+        force: force,
       );
 
   @override

@@ -123,6 +123,10 @@ extension on AnilistQueries {
 
           final missingIds = <int>[];
           for (final m in returnArray) {
+            if (m.userStatus != null) {
+              TrackSyncManager.instance.recordUserMedia(m);
+              continue;
+            }
             final cached = TrackSyncManager.instance.getUserMedia(m.id);
             if (cached != null && cached.userStatus != null) {
               m.userStatus = cached.userStatus;

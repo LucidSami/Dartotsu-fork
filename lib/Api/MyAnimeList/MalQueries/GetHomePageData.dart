@@ -26,14 +26,14 @@ extension on MalQueries {
       MediaResponse? animeRes;
       MediaResponse? mangaRes;
       try {
-        animeRes = await executeQuery<MediaResponse>(animeUrl, force: force);
+        final results = await Future.wait([
+          executeQuery<MediaResponse>(animeUrl, force: force),
+          executeQuery<MediaResponse>(mangaUrl, force: force),
+        ]);
+        animeRes = results[0];
+        mangaRes = results[1];
       } catch (e) {
-        Logger.log('Error fetching MAL animelist: $e');
-      }
-      try {
-        mangaRes = await executeQuery<MediaResponse>(mangaUrl, force: force);
-      } catch (e) {
-        Logger.log('Error fetching MAL mangalist: $e');
+        Logger.log('Error fetching MAL animelist or mangalist: $e');
       }
 
       List<Media> animeProcessed = [];
@@ -195,13 +195,30 @@ extension on MalQueries {
     }
   }
 
-  Future<Map<String, List<Media>>> _getMediaLists({required bool anime}) async {
+  Future<Map<String, List<Media>>> _getMediaLists({required bool anime, bool force = false}) async {
+    final cacheKey = 'mal_user_${anime ? 'anime' : 'manga'}_list';
+    if (!force) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty && decoded.values.any((list) => list.isNotEmpty)) {
+            return decoded;
+          }
+        } catch (_) {}
+      }
+    }
+
     try {
       final endpoint = anime
           ? 'https://api.myanimelist.net/v2/users/@me/animelist?$field&limit=1000&sort=list_updated_at&nsfw=1'
           : 'https://api.myanimelist.net/v2/users/@me/mangalist?$field&limit=1000&sort=list_updated_at&nsfw=1';
 
-      final res = await executeQuery<MediaResponse>(endpoint);
+      final res = await executeQuery<MediaResponse>(
+        endpoint,
+        priority: MalPriority.high,
+        force: force,
+      );
       res?.data?.forEach((m) => m.node?.mediaType = anime ? 'anime' : 'manga');
       final allMedia = await processMediaResponse(res);
 
@@ -223,9 +240,26 @@ extension on MalQueries {
         result['Planning'] = grouped['plan_to_read'] ?? [];
       }
       result['All'] = allMedia;
+
+      if (allMedia.isNotEmpty) {
+        try {
+          ApiCacheManager.instance.set(
+            cacheKey,
+            MediaMapWrapper(mediaMap: result).toJson(),
+            ttl: const Duration(minutes: 30),
+          );
+        } catch (_) {}
+      }
       return result;
     } catch (e) {
       Logger.log('Error in _getMediaLists: $e');
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty) return decoded;
+        } catch (_) {}
+      }
       if (anime) {
         return {
           'Watching': [],

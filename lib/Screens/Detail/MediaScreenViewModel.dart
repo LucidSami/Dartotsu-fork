@@ -15,7 +15,7 @@ class MediaPageViewModel extends GetxController {
     var service = Provider.of<MediaServiceProvider>(context, listen: false)
         .currentService;
     if (cacheMediaData == null || force) {
-      cacheMediaData = (await service.data.query!.mediaDetails(media)) ?? media;
+      cacheMediaData = (await service.data.query!.mediaDetails(media, force: force)) ?? media;
       dataLoaded.value = true;
     }
     return cacheMediaData!;

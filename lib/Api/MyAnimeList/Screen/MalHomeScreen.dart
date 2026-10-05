@@ -10,6 +10,7 @@ import '../../../DataClass/MediaSection.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
 import '../../../Screens/MediaList/MediaListDetailScreen.dart';
+import '../../../Services/ApiCacheManager.dart';
 import '../../../Services/Screens/BaseHomeScreen.dart';
 import '../../../main.dart';
 import '../Mal.dart';
@@ -60,15 +61,26 @@ class MalHomeScreen extends BaseHomeScreen {
   @override
   Future<void> loadAll({bool force = false}) async {
     if (animeContinue.value == null) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_home_page');
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty && decoded.values.any((items) => items.isNotEmpty)) {
+            _setMediaList(decoded);
+          }
+        } catch (_) {}
+      }
+    }
+    if (animeContinue.value == null) {
       resetPageData();
     }
     try {
-      await getUserId(force: force).timeout(const Duration(seconds: 15), onTimeout: () {});
+      getUserId(force: force).timeout(const Duration(seconds: 10), onTimeout: () {});
     } catch (e) {
       debugPrint("MalHomeScreen getUserId error: $e");
     }
     try {
-      await loadList(force: force).timeout(const Duration(seconds: 20), onTimeout: () {
+      await loadList(force: force).timeout(const Duration(seconds: 15), onTimeout: () {
         debugPrint("MalHomeScreen loadList timed out");
       });
     } catch (e) {

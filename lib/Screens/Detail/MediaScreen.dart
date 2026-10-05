@@ -121,11 +121,17 @@ class MediaInfoPageState extends State<MediaInfoPage> {
     Refresh.activity.remove(widget.mediaData.id);
   }
 
-  var loaded = false;
+  late var loaded =
+      widget.mediaData.name != null && widget.mediaData.name!.isNotEmpty;
 
   Future<void> loadMediaData() async {
-    mediaData = await _viewModel.getMediaDetails(widget.mediaData, context);
-    if (mounted) setState(() => loaded = true);
+    final enriched = await _viewModel.getMediaDetails(widget.mediaData, context);
+    if (mounted) {
+      setState(() {
+        mediaData = enriched;
+        loaded = true;
+      });
+    }
   }
 
   Future<void> loadCustomTheme(String? cover) async {

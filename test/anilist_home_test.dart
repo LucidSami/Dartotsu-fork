@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dartotsu/DataClass/Media.dart';
 import 'package:dartotsu/Api/Anilist/Data/fuzzyData.dart';
 import 'package:dartotsu/Api/Anilist/Data/media.dart' as anilistApi;
+import 'package:dartotsu/Api/MyAnimeList/Mal.dart';
 
 void main() {
   test('Media serialization with FuzzyDate dates', () {
@@ -140,6 +141,40 @@ void main() {
 
     expect(list['popularManga']!.first.id, 10);
     expect(list['topRatedManga']!.first.id, 2);
+  });
+
+  test('MAL RateLimiter prioritizes high-priority requests ahead of normal-priority requests', () async {
+    final limiter = RateLimiter();
+    final executionOrder = <String>[];
+
+    limiter.run(() async {
+      executionOrder.add('normal_1');
+      return 'n1';
+    }, priority: MalPriority.normal);
+
+    limiter.run(() async {
+      executionOrder.add('normal_2');
+      return 'n2';
+    }, priority: MalPriority.normal);
+
+    limiter.run(() async {
+      executionOrder.add('high_1');
+      return 'h1';
+    }, priority: MalPriority.high);
+
+    await limiter.waitForSlot(priority: MalPriority.normal);
+
+    expect(executionOrder.first, 'normal_1');
+    expect(executionOrder[1], 'high_1');
+    expect(executionOrder[2], 'normal_2');
+  });
+
+  test('MAL RateLimiter remainingRequests decreases and sliding window tracks capacity', () async {
+    final limiter = RateLimiter();
+    expect(limiter.remainingRequests, 60);
+
+    await limiter.run(() async => 'done', priority: MalPriority.high);
+    expect(limiter.remainingRequests, 59);
   });
 }
 

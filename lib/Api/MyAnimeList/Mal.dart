@@ -226,7 +226,17 @@ class MalController extends BaseServiceData {
     bool force = false,
     bool useToken = true,
     bool show = true,
+    MalPriority? priority,
   }) async {
+    final effectivePriority = priority ??
+        ((url.contains("/anime/") && !url.contains("/ranking") && !url.contains("/season")) ||
+         (url.contains("/manga/") && !url.contains("/ranking")) ||
+         url.contains("@me") ||
+         url.contains("?q=") ||
+         url.contains("&q=")
+            ? MalPriority.high
+            : MalPriority.normal);
+
     for (int attempt = 1; attempt <= 3; attempt++) {
       try {
         await getToken();
@@ -253,10 +263,13 @@ class MalController extends BaseServiceData {
           }
         }
 
-        final response = await rateLimiter.run(() => http.get(
-              Uri.parse(url),
-              headers: reqHeaders,
-            ));
+        final response = await rateLimiter.run(
+          () => http.get(
+            Uri.parse(url),
+            headers: reqHeaders,
+          ),
+          priority: effectivePriority,
+        );
 
         debugPrint("Remaining Mal requests: ${rateLimiter.remainingRequests}");
 
@@ -282,10 +295,13 @@ class MalController extends BaseServiceData {
             final refreshed = await refreshToken();
             if (refreshed != null) {
               reqHeaders["Authorization"] = "Bearer ${refreshed.accessToken}";
-              final retryRes = await rateLimiter.run(() => http.get(
-                    Uri.parse(url),
-                    headers: reqHeaders,
-                  ));
+              final retryRes = await rateLimiter.run(
+                () => http.get(
+                  Uri.parse(url),
+                  headers: reqHeaders,
+                ),
+                priority: MalPriority.high,
+              );
               if (retryRes.statusCode >= 200 && retryRes.statusCode < 300) {
                 final jsonResponse = json.decode(retryRes.body);
                 if (jsonResponse == null) return null;
@@ -309,7 +325,7 @@ class MalController extends BaseServiceData {
       } catch (e) {
         debugPrint("MAL executeQuery error for $url: $e");
         if (attempt < 3) {
-          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          await Future.delayed(Duration(milliseconds: 400 * attempt));
           continue;
         }
         return null;
@@ -340,15 +356,18 @@ class MalController extends BaseServiceData {
 
         final uri = Uri.parse(url);
 
-        final response = await rateLimiter.run(() async {
-          if (method.toUpperCase() == 'DELETE') {
-            return await http.delete(uri, headers: reqHeaders);
-          } else if (method.toUpperCase() == 'PATCH') {
-            return await http.patch(uri, headers: reqHeaders, body: body);
-          } else {
-            return await http.put(uri, headers: reqHeaders, body: body);
-          }
-        });
+        final response = await rateLimiter.run(
+          () async {
+            if (method.toUpperCase() == 'DELETE') {
+              return await http.delete(uri, headers: reqHeaders);
+            } else if (method.toUpperCase() == 'PATCH') {
+              return await http.patch(uri, headers: reqHeaders, body: body);
+            } else {
+              return await http.put(uri, headers: reqHeaders, body: body);
+            }
+          },
+          priority: MalPriority.high,
+        );
 
         if (response.statusCode == 429) {
           final retryHeader = response.headers['retry-after'] ?? response.headers['Retry-After'];
@@ -369,13 +388,16 @@ class MalController extends BaseServiceData {
             final refreshed = await refreshToken();
             if (refreshed != null) {
               reqHeaders["Authorization"] = "Bearer ${refreshed.accessToken}";
-              final retryRes = await rateLimiter.run(() async {
-                if (method.toUpperCase() == 'DELETE') {
-                  return await http.delete(uri, headers: reqHeaders);
-                } else {
-                  return await http.put(uri, headers: reqHeaders, body: body);
-                }
-              });
+              final retryRes = await rateLimiter.run(
+                () async {
+                  if (method.toUpperCase() == 'DELETE') {
+                    return await http.delete(uri, headers: reqHeaders);
+                  } else {
+                    return await http.put(uri, headers: reqHeaders, body: body);
+                  }
+                },
+                priority: MalPriority.high,
+              );
               return retryRes;
             }
           } catch (e) {
@@ -387,7 +409,7 @@ class MalController extends BaseServiceData {
       } catch (e) {
         debugPrint("MAL executeMutation error ($method $url): $e");
         if (attempt < 3) {
-          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          await Future.delayed(Duration(milliseconds: 400 * attempt));
           continue;
         }
         return null;
@@ -407,33 +429,78 @@ class MalController extends BaseServiceData {
   }
 }
 
-class RateLimiter {
-  static const int maxRequestsPerMinute = 50;
-  static const int minIntervalMs = 420;
+enum MalPriority {
+  high,
+  normal,
+}
 
+class _QueuedMalRequest<T> {
+  final Future<T> Function() action;
+  final Completer<T> completer;
+  final MalPriority priority;
+
+  _QueuedMalRequest({
+    required this.action,
+    required this.completer,
+    this.priority = MalPriority.normal,
+  });
+}
+
+class RateLimiter {
+  static const int maxRequestsPerMinute = 60;
+  static const int minIntervalMs = 250;
+
+  final List<DateTime> _requestTimestamps = [];
   DateTime _lastRequestEndTime = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _cooldownUntil;
-  int _requestCount = 0;
-  DateTime _resetTime = DateTime.now().add(const Duration(minutes: 1));
 
-  // FIFO serial execution mutex lock
-  Future<void> _lock = Future.value();
+  final List<_QueuedMalRequest<dynamic>> _highPriorityQueue = [];
+  final List<_QueuedMalRequest<dynamic>> _normalPriorityQueue = [];
+  bool _isProcessing = false;
 
-  Future<T> run<T>(Future<T> Function() action) {
+  Future<T> run<T>(
+    Future<T> Function() action, {
+    MalPriority priority = MalPriority.normal,
+  }) {
     final completer = Completer<T>();
+    final req = _QueuedMalRequest<T>(
+      action: action,
+      completer: completer,
+      priority: priority,
+    );
 
-    _lock = _lock.then((_) async {
-      try {
-        final result = await _executeWithThrottling(action);
-        completer.complete(result);
-      } catch (e, s) {
-        completer.completeError(e, s);
-      }
-    }).catchError((_) {
-      // Guarantee lock chain never breaks
-    });
+    if (priority == MalPriority.high) {
+      _highPriorityQueue.add(req);
+    } else {
+      _normalPriorityQueue.add(req);
+    }
 
+    _processQueue();
     return completer.future;
+  }
+
+  void _processQueue() async {
+    if (_isProcessing) return;
+    _isProcessing = true;
+
+    while (_highPriorityQueue.isNotEmpty || _normalPriorityQueue.isNotEmpty) {
+      final req = _highPriorityQueue.isNotEmpty
+          ? _highPriorityQueue.removeAt(0)
+          : _normalPriorityQueue.removeAt(0);
+
+      try {
+        final result = await _executeWithThrottling(req.action);
+        if (!req.completer.isCompleted) {
+          req.completer.complete(result);
+        }
+      } catch (e, s) {
+        if (!req.completer.isCompleted) {
+          req.completer.completeError(e, s);
+        }
+      }
+    }
+
+    _isProcessing = false;
   }
 
   Future<T> _executeWithThrottling<T>(Future<T> Function() action) async {
@@ -441,25 +508,26 @@ class RateLimiter {
     if (_cooldownUntil != null) {
       final now = DateTime.now();
       if (_cooldownUntil!.isAfter(now)) {
-        final waitDuration = _cooldownUntil!.difference(now) + const Duration(milliseconds: 200);
+        final waitDuration = _cooldownUntil!.difference(now) + const Duration(milliseconds: 100);
         debugPrint("RateLimiter: Cooldown active, waiting ${waitDuration.inMilliseconds}ms");
         await Future.delayed(waitDuration);
       }
       _cooldownUntil = null;
     }
 
-    // 2. Per-minute limit check
+    // 2. Sliding window per-minute limit check (60 requests per 60 seconds)
     final now = DateTime.now();
-    if (now.isAfter(_resetTime)) {
-      _requestCount = 0;
-      _resetTime = now.add(const Duration(minutes: 1));
-    }
-    if (_requestCount >= maxRequestsPerMinute) {
-      final waitDuration = _resetTime.difference(now) + const Duration(milliseconds: 100);
-      debugPrint("RateLimiter: Per-minute limit reached, waiting ${waitDuration.inMilliseconds}ms");
-      await Future.delayed(waitDuration);
-      _requestCount = 0;
-      _resetTime = DateTime.now().add(const Duration(minutes: 1));
+    _requestTimestamps.removeWhere((t) => now.difference(t).inSeconds >= 60);
+
+    if (_requestTimestamps.length >= maxRequestsPerMinute) {
+      final oldest = _requestTimestamps.first;
+      final waitDuration = const Duration(seconds: 60) - now.difference(oldest) + const Duration(milliseconds: 100);
+      if (waitDuration > Duration.zero) {
+        debugPrint("RateLimiter: Sliding window limit reached, waiting ${waitDuration.inMilliseconds}ms");
+        await Future.delayed(waitDuration);
+      }
+      final afterWait = DateTime.now();
+      _requestTimestamps.removeWhere((t) => afterWait.difference(t).inSeconds >= 60);
     }
 
     // 3. Minimum gap between end of previous request and start of current request
@@ -468,9 +536,9 @@ class RateLimiter {
       await Future.delayed(Duration(milliseconds: minIntervalMs - elapsedSinceLastEnd));
     }
 
-    _requestCount++;
+    _requestTimestamps.add(DateTime.now());
     try {
-      return await action().timeout(const Duration(seconds: 15));
+      return await action().timeout(const Duration(seconds: 10));
     } finally {
       _lastRequestEndTime = DateTime.now();
     }
@@ -485,9 +553,13 @@ class RateLimiter {
   }
 
   /// Backward-compatible wait helper
-  Future<void> waitForSlot() async {
-    await run(() async {});
+  Future<void> waitForSlot({MalPriority priority = MalPriority.normal}) async {
+    await run(() async {}, priority: priority);
   }
 
-  int get remainingRequests => (maxRequestsPerMinute - _requestCount).clamp(0, maxRequestsPerMinute);
+  int get remainingRequests {
+    final now = DateTime.now();
+    _requestTimestamps.removeWhere((t) => now.difference(t).inSeconds >= 60);
+    return (maxRequestsPerMinute - _requestTimestamps.length).clamp(0, maxRequestsPerMinute);
+  }
 }

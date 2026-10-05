@@ -9,6 +9,7 @@ import '../../../DataClass/MediaSection.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
 import '../../../Screens/MediaList/MediaListDetailScreen.dart';
+import '../../../Services/ApiCacheManager.dart';
 import '../../../Services/Screens/BaseAnimeScreen.dart';
 import '../Mal.dart';
 
@@ -32,8 +33,28 @@ class MalAnimeScreen extends BaseAnimeScreen {
     }
   }
 
+  void _populateFromMap(Map<String, List<Media>> list) {
+    if (list["topAiring"]?.isNotEmpty ?? false) updated.value = list["topAiring"];
+    if (list["trendingMovies"]?.isNotEmpty ?? false) popularMovies.value = list["trendingMovies"];
+    if (list["topRatedSeries"]?.isNotEmpty ?? false) topRatedSeries.value = list["topRatedSeries"];
+    if (list["mostFavouriteSeries"]?.isNotEmpty ?? false) mostFavSeries.value = list["mostFavouriteSeries"];
+    if (list["popularAnime"]?.isNotEmpty ?? false) animePopular.value = list["popularAnime"];
+    if (list["trendingAnime"]?.isNotEmpty ?? false) trending.value = list["trendingAnime"];
+  }
+
   @override
   Future<void> loadAll({bool force = false}) async {
+    if (animePopular.value == null || animePopular.value!.isEmpty) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_anime_page');
+      if (cached != null) {
+        try {
+          final cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (cachedMap.isNotEmpty && cachedMap.values.any((items) => items.isNotEmpty)) {
+            _populateFromMap(cachedMap);
+          }
+        } catch (_) {}
+      }
+    }
     if (animePopular.value == null || animePopular.value!.isEmpty) {
       resetPageData();
     } else {
@@ -41,15 +62,10 @@ class MalAnimeScreen extends BaseAnimeScreen {
       loadMore.value = true;
       canLoadMore.value = true;
     }
-    await getUserId();
+    getUserId();
     try {
       final list = await Mal.query!.getAnimeList(force: force);
-      if (list["topAiring"]?.isNotEmpty ?? false) updated.value = list["topAiring"];
-      if (list["trendingMovies"]?.isNotEmpty ?? false) popularMovies.value = list["trendingMovies"];
-      if (list["topRatedSeries"]?.isNotEmpty ?? false) topRatedSeries.value = list["topRatedSeries"];
-      if (list["mostFavouriteSeries"]?.isNotEmpty ?? false) mostFavSeries.value = list["mostFavouriteSeries"];
-      if (list["popularAnime"]?.isNotEmpty ?? false) animePopular.value = list["popularAnime"];
-      if (list["trendingAnime"]?.isNotEmpty ?? false) trending.value = list["trendingAnime"];
+      _populateFromMap(list);
       updated.value ??= [];
       popularMovies.value ??= [];
       topRatedSeries.value ??= [];
@@ -58,7 +74,9 @@ class MalAnimeScreen extends BaseAnimeScreen {
       trending.value ??= [];
     } catch (e) {
       debugPrint("Error loading MAL anime list: $e");
-      snackString("MyAnimeList API is down or unreachable");
+      if (animePopular.value == null || animePopular.value!.isEmpty) {
+        snackString("MyAnimeList API is down or unreachable");
+      }
       updated.value ??= [];
       popularMovies.value ??= [];
       topRatedSeries.value ??= [];

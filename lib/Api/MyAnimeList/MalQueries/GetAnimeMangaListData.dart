@@ -69,25 +69,30 @@ extension on MalQueries {
         }
       }
 
-      for (var entry in queries.entries) {
-        try {
-          final mediaRes = await executeQuery<MediaResponse>(entry.value);
-          if (mediaRes != null) {
-            list[entry.key] = await processMediaResponse(mediaRes);
-          } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
-            list[entry.key] = cachedMap[entry.key]!;
-          } else {
-            list[entry.key] = [];
+      await Future.wait(
+        queries.entries.map((entry) async {
+          try {
+            final mediaRes = await executeQuery<MediaResponse>(
+              entry.value,
+              priority: MalPriority.normal,
+            );
+            if (mediaRes != null) {
+              list[entry.key] = await processMediaResponse(mediaRes);
+            } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+              list[entry.key] = cachedMap[entry.key]!;
+            } else {
+              list[entry.key] = [];
+            }
+          } catch (e) {
+            debugPrint("Error fetching ${entry.key}: $e");
+            if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+              list[entry.key] = cachedMap[entry.key]!;
+            } else {
+              list[entry.key] = [];
+            }
           }
-        } catch (e) {
-          debugPrint("Error fetching ${entry.key}: $e");
-          if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
-            list[entry.key] = cachedMap[entry.key]!;
-          } else {
-            list[entry.key] = [];
-          }
-        }
-      }
+        }),
+      );
 
       final hasValidData = list.values.any((items) => items.isNotEmpty);
       if (hasValidData) {
@@ -163,25 +168,30 @@ extension on MalQueries {
         queries['trendingManga'] = trendingUrl;
       }
 
-      for (var entry in queries.entries) {
-        try {
-          final mediaRes = await executeQuery<MediaResponse>(entry.value);
-          if (mediaRes != null) {
-            list[entry.key] = await processMediaResponse(mediaRes);
-          } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
-            list[entry.key] = cachedMap[entry.key]!;
-          } else {
-            list[entry.key] = [];
+      await Future.wait(
+        queries.entries.map((entry) async {
+          try {
+            final mediaRes = await executeQuery<MediaResponse>(
+              entry.value,
+              priority: MalPriority.normal,
+            );
+            if (mediaRes != null) {
+              list[entry.key] = await processMediaResponse(mediaRes);
+            } else if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+              list[entry.key] = cachedMap[entry.key]!;
+            } else {
+              list[entry.key] = [];
+            }
+          } catch (e) {
+            debugPrint("Error fetching ${entry.key}: $e");
+            if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
+              list[entry.key] = cachedMap[entry.key]!;
+            } else {
+              list[entry.key] = [];
+            }
           }
-        } catch (e) {
-          debugPrint("Error fetching ${entry.key}: $e");
-          if (cachedMap != null && cachedMap[entry.key]?.isNotEmpty == true) {
-            list[entry.key] = cachedMap[entry.key]!;
-          } else {
-            list[entry.key] = [];
-          }
-        }
-      }
+        }),
+      );
 
       // Reuse topRatedManga for trendingManga to save a duplicate network query
       if (shouldDeriveTrending) {

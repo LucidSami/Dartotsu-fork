@@ -13,7 +13,7 @@ abstract class Queries {
 
   /// Fetches additional media details for the provided [media] object.
   /// Returns an updated [media] object.
-  Future<Media?>? mediaDetails(Media media);
+  Future<Media?>? mediaDetails(Media media, {bool force = false});
 
   /// Initializes and returns media data for the homepage in the form of a map.
   /// The keys are section names, and values are lists of [Media] objects.
@@ -34,6 +34,7 @@ abstract class Queries {
     required bool anime,
     required int userId,
     String? sortOrder,
+    bool force = false,
   });
 
   /// Retrieves a list of banner image URLs for the homepage.

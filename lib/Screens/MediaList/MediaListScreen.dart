@@ -33,7 +33,7 @@ class MediaListScreenState extends State<MediaListScreen> {
       anime: widget.anime,
       userId: widget.id,
       service: service,
-      force: true,
+      force: false,
     );
   }
 
@@ -64,7 +64,9 @@ class MediaListScreenState extends State<MediaListScreen> {
         iconTheme: IconThemeData(color: theme.primary),
       ),
       body: Obx(() {
-        if (_viewModel.isLoading.value) {
+        if (_viewModel.isLoading.value &&
+            (_viewModel.mediaList.value == null ||
+                _viewModel.mediaList.value!.isEmpty)) {
           return const MediaListTabs(data: {"Loading": null});
         }
 

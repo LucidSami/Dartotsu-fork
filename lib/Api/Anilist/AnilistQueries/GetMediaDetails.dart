@@ -1,9 +1,19 @@
 part of '../AnilistQueries.dart';
 
 extension on AnilistQueries {
-  Future<Media?> _mediaDetails(Media media) async {
+  Future<Media?> _mediaDetails(Media media, {bool force = false}) async {
+    final cacheKey = 'anilist_details_${media.id}';
+    if (!force) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        try {
+          return Media.fromJson(cached);
+        } catch (_) {}
+      }
+    }
+
     var response =
-        (await executeQuery<MediaResponse>(_queryMedia(media), force: true));
+        (await executeQuery<MediaResponse>(_queryMedia(media), force: force));
     if (response == null) return null;
 
     Media parse(Map<String, dynamic> params) {
@@ -256,6 +266,13 @@ extension on AnilistQueries {
         snackString('Error getting data from Anilist.');
       }
     }
+    try {
+      ApiCacheManager.instance.set(
+        cacheKey,
+        media.toJson(),
+        ttl: const Duration(hours: 12),
+      );
+    } catch (_) {}
     return media;
   }
 }

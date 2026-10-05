@@ -32,6 +32,7 @@ class MalQueries extends Queries {
     bool force,
     bool useToken,
     bool show,
+    MalPriority? priority,
   }) executeQuery;
 
   MalQueries(this.executeQuery);
@@ -78,8 +79,8 @@ class MalQueries extends Queries {
 
   @override
   Future<Map<String, List<Media>>> getMediaLists(
-      {required bool anime, required int userId, String? sortOrder}) {
-    return _getMediaLists(anime: anime);
+      {required bool anime, required int userId, String? sortOrder, bool force = false}) {
+    return _getMediaLists(anime: anime, force: force);
   }
 
   @override
@@ -91,7 +92,8 @@ class MalQueries extends Queries {
       _initHomePage(force: force);
 
   @override
-  Future<Media?>? mediaDetails(Media media) => _getMediaDetails(media);
+  Future<Media?>? mediaDetails(Media media, {bool force = false}) =>
+      _getMediaDetails(media, force: force);
 
   @override
   Future<SearchResults?> search(SearchResults? searchResults) =>

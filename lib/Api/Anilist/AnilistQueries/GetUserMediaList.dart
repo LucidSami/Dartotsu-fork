@@ -5,9 +5,26 @@ extension on AnilistQueries {
     required bool anime,
     required int userId,
     String? sortOrder,
+    bool force = false,
   }) async {
-    final response = await executeQuery<MediaListCollectionResponse>(
-        _queryUser(userId, anime));
+    final cacheKey = 'anilist_user_${anime ? 'anime' : 'manga'}_list_$userId';
+    if (!force) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty && decoded.values.any((list) => list.isNotEmpty)) {
+            return decoded;
+          }
+        } catch (_) {}
+      }
+    }
+
+    final queryFuture = executeQuery<MediaListCollectionResponse>(_queryUser(userId, anime));
+    final favFuture = favMedia(anime, id: userId);
+    final results = await Future.wait([queryFuture, favFuture]);
+    final response = results[0] as MediaListCollectionResponse?;
+    final favList = results[1] as List<Media>;
 
     final Map<String, List<Media>> sorted = {};
 
@@ -51,7 +68,7 @@ extension on AnilistQueries {
       }
     });
 
-    sorted['Favourites'] = await favMedia(anime, id: userId);
+    sorted['Favourites'] = favList;
     for (final media in all) {
       TrackSyncManager.instance.recordUserMedia(media);
     }
@@ -75,33 +92,16 @@ extension on AnilistQueries {
 
     sorted['All'] = all;
 
-    /*final listSort = anime
-        ? loadData(PrefName.AnimeListSortOrder)
-        : loadData(PrefName.MangaListSortOrder);
-    final sort = listSort ?? sortOrder ?? options?.rowOrder;
+    if (all.isNotEmpty) {
+      try {
+        ApiCacheManager.instance.set(
+          cacheKey,
+          MediaMapWrapper(mediaMap: sorted).toJson(),
+          ttl: const Duration(minutes: 30),
+        );
+      } catch (_) {}
+    }
 
-    sorted.forEach((key, list) {
-      switch (sort) {
-        case 'score':
-          list.sort((a, b) =>
-              compareMultiple([b.userScore, b.meanScore], [a.userScore, a.meanScore]));
-          break;
-        case 'title':
-          list.sort((a, b) => a.userPreferredName.compareTo(b.userPreferredName));
-          break;
-        case 'updatedAt':
-          list.sort((a, b) => b.userUpdatedAt.compareTo(a.userUpdatedAt));
-          break;
-        case 'release':
-          list.sort((a, b) => b.startDate.compareTo(a.startDate));
-          break;
-        case 'id':
-          list.sort((a, b) => a.id.compareTo(b.id));
-          break;
-      }
-    });
-
-    return sorted;*/
     return sorted;
   }
 

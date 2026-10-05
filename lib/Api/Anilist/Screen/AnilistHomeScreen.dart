@@ -10,6 +10,7 @@ import '../../../DataClass/User.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
 import '../../../Screens/MediaList/MediaListDetailScreen.dart';
+import '../../../Services/ApiCacheManager.dart';
 import '../../../Theme/LanguageSwitcher.dart';
 import '../../../main.dart';
 import '../Anilist.dart';
@@ -42,12 +43,25 @@ class AnilistHomeScreen extends BaseHomeScreen {
   @override
   Future<void> loadAll({bool force = false}) async {
     if (animeContinue.value == null) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('anilist_home_page');
+      if (cached != null) {
+        try {
+          final decoded = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (decoded.isNotEmpty && decoded.values.any((items) => items.isNotEmpty)) {
+            _setMediaList(decoded);
+          }
+        } catch (_) {}
+      }
+    }
+    if (animeContinue.value == null) {
       resetPageData();
     }
     try {
-      await getUserId();
-      await setListImages();
-      await loadList(force: force);
+      await Future.wait([
+        getUserId(),
+        setListImages(),
+        loadList(force: force),
+      ]);
     } catch (e, s) {
       debugPrint("Error in Anilist loadAll: $e\n$s");
       if (animeContinue.value == null) {

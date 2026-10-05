@@ -8,6 +8,7 @@ import '../../../DataClass/MediaSection.dart';
 import '../../../Functions/Function.dart';
 import '../../../Preferences/PrefManager.dart';
 import '../../../Screens/MediaList/MediaListDetailScreen.dart';
+import '../../../Services/ApiCacheManager.dart';
 import '../../../Services/Screens/BaseMangaScreen.dart';
 import '../Mal.dart';
 import '../MalQueries.dart';
@@ -32,8 +33,28 @@ class MalMangaScreen extends BaseMangaScreen {
     }
   }
 
+  void _populateFromMap(Map<String, List<Media>> list) {
+    if (list["trendingManga"]?.isNotEmpty ?? false) trending.value = list["trendingManga"];
+    if (list["popularManga"]?.isNotEmpty ?? false) mangaPopular.value = list["popularManga"];
+    if (list["trendingManhwa"]?.isNotEmpty ?? false) popularManhwa.value = list["trendingManhwa"];
+    if (list["trendingNovels"]?.isNotEmpty ?? false) popularNovel.value = list["trendingNovels"];
+    if (list["topRatedManga"]?.isNotEmpty ?? false) topRatedManga.value = list["topRatedManga"];
+    if (list["mostFavouriteManga"]?.isNotEmpty ?? false) mostFavManga.value = list["mostFavouriteManga"];
+  }
+
   @override
   Future<void> loadAll({bool force = false}) async {
+    if (mangaPopular.value == null || mangaPopular.value!.isEmpty) {
+      final cached = ApiCacheManager.instance.get<Map<String, dynamic>>('mal_manga_page');
+      if (cached != null) {
+        try {
+          final cachedMap = MediaMapWrapper.fromJson(cached).mediaMap;
+          if (cachedMap.isNotEmpty && cachedMap.values.any((items) => items.isNotEmpty)) {
+            _populateFromMap(cachedMap);
+          }
+        } catch (_) {}
+      }
+    }
     if (mangaPopular.value == null || mangaPopular.value!.isEmpty) {
       resetPageData();
     } else {
@@ -41,15 +62,10 @@ class MalMangaScreen extends BaseMangaScreen {
       loadMore.value = true;
       canLoadMore.value = true;
     }
-    await getUserId();
+    getUserId();
     try {
       final list = await Mal.query!.getMangaList(force: force);
-      if (list["trendingManga"]?.isNotEmpty ?? false) trending.value = list["trendingManga"];
-      if (list["popularManga"]?.isNotEmpty ?? false) mangaPopular.value = list["popularManga"];
-      if (list["trendingManhwa"]?.isNotEmpty ?? false) popularManhwa.value = list["trendingManhwa"];
-      if (list["trendingNovels"]?.isNotEmpty ?? false) popularNovel.value = list["trendingNovels"];
-      if (list["topRatedManga"]?.isNotEmpty ?? false) topRatedManga.value = list["topRatedManga"];
-      if (list["mostFavouriteManga"]?.isNotEmpty ?? false) mostFavManga.value = list["mostFavouriteManga"];
+      _populateFromMap(list);
       trending.value ??= [];
       mangaPopular.value ??= [];
       popularManhwa.value ??= [];
@@ -58,7 +74,9 @@ class MalMangaScreen extends BaseMangaScreen {
       mostFavManga.value ??= [];
     } catch (e) {
       debugPrint("Error loading MAL manga list: $e");
-      snackString("MyAnimeList API is down or unreachable");
+      if (mangaPopular.value == null || mangaPopular.value!.isEmpty) {
+        snackString("MyAnimeList API is down or unreachable");
+      }
       trending.value ??= [];
       mangaPopular.value ??= [];
       popularManhwa.value ??= [];
