@@ -151,42 +151,50 @@ class PrefManager {
     T value,
     PrefLocation loc,
   ) async {
-    await dartotsuPreferences.writeTxn(() async {
-      if (value is MediaSettings) {
-        value.key = key;
-        value.location = loc;
-        await dartotsuPreferences.mediaSettings.put(value);
-      } else if (value is ShowResponse) {
-        value.key = key;
-        value.location = loc;
-        await dartotsuPreferences.showResponses.put(value);
-      } else if (value is ResponseToken) {
-        value.key = key;
-        value.location = loc;
-        await dartotsuPreferences.responseTokens.put(value);
-      } else {
-        final obj = KeyValue()
-          ..key = key
-          ..value = value
-          ..location = loc;
+    try {
+      await dartotsuPreferences.writeTxn(() async {
+        if (value is MediaSettings) {
+          value.key = key;
+          value.location = loc;
+          await dartotsuPreferences.mediaSettings.put(value);
+        } else if (value is ShowResponse) {
+          value.key = key;
+          value.location = loc;
+          await dartotsuPreferences.showResponses.put(value);
+        } else if (value is ResponseToken) {
+          value.key = key;
+          value.location = loc;
+          await dartotsuPreferences.responseTokens.put(value);
+        } else {
+          final obj = KeyValue()
+            ..key = key
+            ..value = value
+            ..location = loc;
 
-        await dartotsuPreferences.keyValues.put(obj);
-      }
-    });
+          await dartotsuPreferences.keyValues.put(obj);
+        }
+      });
+    } catch (e) {
+      debugPrint("PrefManager _writeToIsar ignored error: $e");
+    }
   }
 
   static Future<void> _removeFromIsar<T>(String key) async {
-    await dartotsuPreferences.writeTxn(() async {
-      if (T == MediaSettings) {
-        await dartotsuPreferences.mediaSettings.deleteByKey(key);
-      } else if (T == ResponseToken) {
-        await dartotsuPreferences.responseTokens.deleteByKey(key);
-      } else if (T == ShowResponse) {
-        await dartotsuPreferences.showResponses.deleteByKey(key);
-      } else {
-        await dartotsuPreferences.keyValues.deleteByKey(key);
-      }
-    });
+    try {
+      await dartotsuPreferences.writeTxn(() async {
+        if (T == MediaSettings) {
+          await dartotsuPreferences.mediaSettings.deleteByKey(key);
+        } else if (T == ResponseToken) {
+          await dartotsuPreferences.responseTokens.deleteByKey(key);
+        } else if (T == ShowResponse) {
+          await dartotsuPreferences.showResponses.deleteByKey(key);
+        } else {
+          await dartotsuPreferences.keyValues.deleteByKey(key);
+        }
+      });
+    } catch (e) {
+      debugPrint("PrefManager _removeFromIsar ignored error: $e");
+    }
   }
 
   static Future<void> _populateCache() async {

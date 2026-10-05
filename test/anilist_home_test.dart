@@ -4,6 +4,8 @@ import 'package:dartotsu/DataClass/Media.dart';
 import 'package:dartotsu/Api/Anilist/Data/fuzzyData.dart';
 import 'package:dartotsu/Api/Anilist/Data/media.dart' as anilistApi;
 import 'package:dartotsu/Api/MyAnimeList/Mal.dart';
+import 'package:dartotsu/Services/TrackSyncManager.dart';
+import 'package:dartotsu/Services/ApiCacheManager.dart';
 
 void main() {
   test('Media serialization with FuzzyDate dates', () {
@@ -176,5 +178,34 @@ void main() {
     await limiter.run(() async => 'done', priority: MalPriority.high);
     expect(limiter.remainingRequests, 59);
   });
+
+  test('TrackSyncManager instantly records progress and recent progress map without waiting on network', () async {
+    final syncManager = TrackSyncManager.instance;
+    final testMedia = Media(
+      id: 99991,
+      idMAL: 88881,
+      nameRomaji: 'Instant Test',
+      userPreferredName: 'Instant Test',
+      userProgress: 3,
+      userStatus: 'CURRENT',
+    );
+
+    // Call syncProgress
+    await syncManager.syncProgress(media: testMedia, episodeOrChapterNumber: '4');
+
+    expect(testMedia.userProgress, 4);
+    expect(syncManager.getRecentProgress(99991), 4);
+    expect(syncManager.getRecentProgress(88881), 4);
+  });
+
+  test('ApiCacheManager invalidation removes cached items instantly', () {
+    final cache = ApiCacheManager.instance;
+    cache.set('test_home_cache', {'hello': 'world'}, ttl: const Duration(minutes: 5));
+    expect(cache.get<Map<String, dynamic>>('test_home_cache'), isNotNull);
+
+    cache.invalidate('test_home_cache');
+    expect(cache.get<Map<String, dynamic>>('test_home_cache'), isNull);
+  });
 }
+
 
