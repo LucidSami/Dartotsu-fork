@@ -14,11 +14,26 @@ class TrackSyncManager {
   final Map<int, int> _malToAnilistIdMap = {};
   final Map<int, int> _anilistToMalIdMap = {};
   final Map<int, int> _recentProgressMap = {};
+  final Map<int, Media> _userMediaCache = {};
 
   int? getRecentProgress(int mediaId) => _recentProgressMap[mediaId];
 
+  Media? getUserMedia(int mediaId) => _userMediaCache[mediaId];
+
+  void recordUserMedia(Media media) {
+    if (media.userStatus != null) {
+      _userMediaCache[media.id] = media;
+      if (media.idMAL != null) _userMediaCache[media.idMAL!] = media;
+      if (media.idAnilist != null) _userMediaCache[media.idAnilist!] = media;
+    }
+  }
+
   void recordProgress(int mediaId, int progress) {
     _recentProgressMap[mediaId] = progress;
+    final cached = _userMediaCache[mediaId];
+    if (cached != null) {
+      cached.userProgress = progress;
+    }
   }
 
   /// Syncs episode / chapter progress according to the 3 scenarios:
@@ -190,6 +205,8 @@ class TrackSyncManager {
         Anilist.token.value.isNotEmpty && Anilist.userid != null;
     final bool malLoggedIn = Mal.token.value.isNotEmpty;
 
+    recordUserMedia(media);
+
     if (media.userProgress != null) {
       _recentProgressMap[media.id] = media.userProgress!;
       if (media.idMAL != null) _recentProgressMap[media.idMAL!] = media.userProgress!;
@@ -350,6 +367,10 @@ class TrackSyncManager {
         }
       }
     }
+
+    _userMediaCache.remove(media.id);
+    if (media.idMAL != null) _userMediaCache.remove(media.idMAL!);
+    if (media.idAnilist != null) _userMediaCache.remove(media.idAnilist!);
 
     Refresh.activity[media.id]?.value = true;
     if (media.idMAL != null) Refresh.activity[media.idMAL!]?.value = true;

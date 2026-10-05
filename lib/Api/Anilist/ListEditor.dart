@@ -42,29 +42,61 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
   void initState() {
     super.initState();
     final media = widget.media;
-    status = media.userStatus ?? "PLANNING";
+
+    var userStatus = media.userStatus;
+    var userProgress = media.userProgress;
+    var userScore = media.userScore;
+    var isPrivateVal = media.isListPrivate;
+    var notesVal = media.notes;
+    var startedAtVal = media.userStartedAt;
+    var completedAtVal = media.userCompletedAt;
+    var repeatVal = media.userRepeat;
+
+    final cached = TrackSyncManager.instance.getUserMedia(media.id) ??
+        (media.idMAL != null ? TrackSyncManager.instance.getUserMedia(media.idMAL!) : null);
+    if (userStatus == null && cached != null && cached.userStatus != null) {
+      userStatus = cached.userStatus;
+      userProgress = cached.userProgress ?? userProgress;
+      userScore = cached.userScore ?? userScore;
+      isPrivateVal = cached.isListPrivate;
+      notesVal = cached.notes ?? notesVal;
+      startedAtVal = cached.userStartedAt ?? startedAtVal;
+      completedAtVal = cached.userCompletedAt ?? completedAtVal;
+      repeatVal = cached.userRepeat;
+
+      media.userStatus = userStatus;
+      media.userProgress = userProgress;
+      media.userScore = userScore;
+      media.isListPrivate = isPrivateVal;
+      media.notes = notesVal;
+      media.userStartedAt = startedAtVal;
+      media.userCompletedAt = completedAtVal;
+      media.userRepeat = repeatVal;
+    }
+
+    status = userStatus ?? "PLANNING";
     final initialProgress =
-        (media.userProgress != null && media.userProgress! >= 0)
-            ? media.userProgress.toString()
+        (userProgress != null && userProgress >= 0)
+            ? userProgress.toString()
             : '';
     progressController = TextEditingController(text: initialProgress);
 
-    final initialScore = (media.userScore != null && media.userScore! > 0)
-        ? (media.userScore! % 10 == 0
-            ? (media.userScore! ~/ 10).toString()
-            : (media.userScore! / 10).toString())
+    final initialScore = (userScore != null && userScore > 0)
+        ? (userScore % 10 == 0
+            ? (userScore ~/ 10).toString()
+            : (userScore / 10).toString())
         : '';
     scoreController = TextEditingController(text: initialScore);
 
     if (!widget.isCompact) {
-      noteController = TextEditingController(text: widget.media.notes ?? "");
+      noteController = TextEditingController(text: notesVal ?? "");
       repeatController =
-          TextEditingController(text: widget.media.userRepeat.toString());
-      startedAt = media.userStartedAt;
-      completedAt = media.userCompletedAt;
+          TextEditingController(text: repeatVal.toString());
+      startedAt = startedAtVal;
+      completedAt = completedAtVal;
       customListName = Map<String, bool>.from(media.inCustomListsOf ?? {});
     }
-    isPrivate = media.isListPrivate;
+    isPrivate = isPrivateVal;
     final totalCount = media.anime != null
         ? (media.anime!.nextAiringEpisode != null &&
                 media.anime!.nextAiringEpisode != -1
@@ -72,6 +104,51 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
             : media.anime!.totalEpisodes)
         : media.manga?.totalChapters;
     suffixText = "/ ${totalCount ?? '-'}";
+
+    if (userStatus == null && Anilist.token.value.isNotEmpty) {
+      _fetchMissingUserStatus();
+    }
+  }
+
+  Future<void> _fetchMissingUserStatus() async {
+    try {
+      final fetched = await Anilist.query?.getMedia(widget.media.id);
+      if (fetched != null && fetched.userStatus != null && mounted) {
+        setState(() {
+          widget.media
+            ..userStatus = fetched.userStatus
+            ..userProgress = fetched.userProgress
+            ..userScore = fetched.userScore
+            ..isListPrivate = fetched.isListPrivate
+            ..notes = fetched.notes
+            ..userStartedAt = fetched.userStartedAt
+            ..userCompletedAt = fetched.userCompletedAt
+            ..userRepeat = fetched.userRepeat;
+
+          status = fetched.userStatus!;
+          if (fetched.userProgress != null && fetched.userProgress! >= 0) {
+            progressController.text = fetched.userProgress.toString();
+          }
+          if (fetched.userScore != null && fetched.userScore! > 0) {
+            scoreController.text = (fetched.userScore! % 10 == 0)
+                ? (fetched.userScore! ~/ 10).toString()
+                : (fetched.userScore! / 10).toString();
+          }
+          isPrivate = fetched.isListPrivate;
+          if (noteController != null) {
+            noteController!.text = fetched.notes ?? "";
+          }
+          if (repeatController != null) {
+            repeatController!.text = fetched.userRepeat.toString();
+          }
+          startedAt = fetched.userStartedAt;
+          completedAt = fetched.userCompletedAt;
+        });
+        TrackSyncManager.instance.recordUserMedia(widget.media);
+      }
+    } catch (e) {
+      debugPrint("Error fetching missing media status: $e");
+    }
   }
 
   @override

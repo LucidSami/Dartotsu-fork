@@ -52,12 +52,23 @@ extension on AnilistQueries {
     });
 
     sorted['Favourites'] = await favMedia(anime, id: userId);
-    //sorted['Favourites']?.sort((a, b) => a.userFavOrder.compareTo(b.userFavOrder));
+    for (final media in all) {
+      TrackSyncManager.instance.recordUserMedia(media);
+    }
 
     sorted['Favourites']?.forEach((fav) {
       final matchingMedia = all.firstWhereOrNull((m) => m.id == fav.id);
       if (matchingMedia != null) {
+        fav.userStatus = matchingMedia.userStatus;
         fav.userProgress = matchingMedia.userProgress;
+        fav.userScore = matchingMedia.userScore;
+        fav.isListPrivate = matchingMedia.isListPrivate;
+        fav.notes = matchingMedia.notes;
+        fav.userStartedAt = matchingMedia.userStartedAt;
+        fav.userCompletedAt = matchingMedia.userCompletedAt;
+        fav.userRepeat = matchingMedia.userRepeat;
+        fav.inCustomListsOf = matchingMedia.inCustomListsOf;
+        TrackSyncManager.instance.recordUserMedia(fav);
       }
     });
 
@@ -270,6 +281,65 @@ extension on AnilistQueries {
           })
           .whereType<Media>()
           .toList();
+
+      if (list.isNotEmpty) {
+        final missingIds = <int>[];
+        for (final m in list) {
+          final cached = TrackSyncManager.instance.getUserMedia(m.id);
+          if (cached != null && cached.userStatus != null) {
+            m.userStatus = cached.userStatus;
+            m.userProgress = cached.userProgress;
+            m.userScore = cached.userScore;
+            m.isListPrivate = cached.isListPrivate;
+            m.notes = cached.notes;
+            m.userRepeat = cached.userRepeat;
+            m.userStartedAt = cached.userStartedAt;
+            m.userCompletedAt = cached.userCompletedAt;
+          } else {
+            missingIds.add(m.id);
+          }
+        }
+        if (missingIds.isNotEmpty) {
+          try {
+            final mediaListRes = await executeQuery<MediaResponse>('''
+              {
+                Page {
+                  mediaList(userId: $id, mediaId_in: $missingIds) {
+                    mediaId
+                    status
+                    progress
+                    score(format: POINT_100)
+                    private
+                    notes
+                    repeat
+                    startedAt { year month day }
+                    completedAt { year month day }
+                  }
+                }
+              }
+            ''');
+            final entries = mediaListRes?.data?.page?.mediaList;
+            if (entries != null) {
+              for (final entry in entries) {
+                final match = list.firstWhereOrNull((m) => m.id == entry.mediaId);
+                if (match != null) {
+                  match.userStatus = entry.status?.name;
+                  match.userProgress = entry.progress;
+                  match.userScore = entry.score?.toInt() ?? 0;
+                  match.isListPrivate = entry.private ?? false;
+                  match.notes = entry.notes;
+                  match.userRepeat = entry.repeat ?? 0;
+                  match.userStartedAt = entry.startedAt;
+                  match.userCompletedAt = entry.completedAt;
+                  TrackSyncManager.instance.recordUserMedia(match);
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint("Error batch enriching favourites page $page: $e");
+          }
+        }
+      }
       return list;
     } catch (e) {
       debugPrint("Error fetching favourites page $page: $e");

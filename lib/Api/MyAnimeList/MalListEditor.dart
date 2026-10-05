@@ -82,26 +82,57 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
     final media = widget.media;
     isAnime = media.anime != null ||
         (media.format != 'manga' && media.format != 'novel');
-    status = getInitialStatus(media.userStatus, isAnime);
+
+    var userStatus = media.userStatus;
+    var userProgress = media.userProgress;
+    var userScore = media.userScore;
+    var notesVal = media.notes;
+    var startedAtVal = media.userStartedAt;
+    var completedAtVal = media.userCompletedAt;
+    var repeatVal = media.userRepeat;
+
+    final malId = media.idMAL ?? (media.mal ? media.id : null);
+    final cached = malId != null
+        ? TrackSyncManager.instance.getUserMedia(malId)
+        : TrackSyncManager.instance.getUserMedia(media.id);
+    if (userStatus == null && cached != null && cached.userStatus != null) {
+      userStatus = cached.userStatus;
+      userProgress = cached.userProgress ?? userProgress;
+      userScore = cached.userScore ?? userScore;
+      notesVal = cached.notes ?? notesVal;
+      startedAtVal = cached.userStartedAt ?? startedAtVal;
+      completedAtVal = cached.userCompletedAt ?? completedAtVal;
+      repeatVal = cached.userRepeat;
+
+      media.userStatus = userStatus;
+      media.userProgress = userProgress;
+      media.userScore = userScore;
+      media.notes = notesVal;
+      media.userStartedAt = startedAtVal;
+      media.userCompletedAt = completedAtVal;
+      media.userRepeat = repeatVal;
+    }
+
+    status = getInitialStatus(userStatus, isAnime);
     final initialProgress =
-        (media.userProgress != null && media.userProgress! >= 0)
-            ? media.userProgress.toString()
+        (userProgress != null && userProgress >= 0)
+            ? userProgress.toString()
             : '';
     progressController = TextEditingController(text: initialProgress);
 
-    final initialScore = (media.userScore != null && media.userScore! > 0)
-        ? (media.userScore! % 10 == 0
-            ? (media.userScore! ~/ 10).toString()
-            : (media.userScore! / 10).toString())
+    final initialScore = (userScore != null && userScore > 0)
+        ? (userScore % 10 == 0
+            ? (userScore ~/ 10).toString()
+            : (userScore / 10).toString())
         : '';
     scoreController = TextEditingController(text: initialScore);
 
     if (!widget.isCompact) {
-      noteController = TextEditingController(text: media.notes ?? "");
+      noteController = TextEditingController(text: notesVal ?? "");
       repeatController =
-          TextEditingController(text: media.userRepeat.toString());
-      startedAt = media.userStartedAt;
-      completedAt = media.userCompletedAt;
+          TextEditingController(text: repeatVal.toString());
+      startedAt = startedAtVal;
+      completedAt = completedAtVal;
     }
     final totalCount = media.anime != null
         ? (media.anime!.nextAiringEpisode != null &&
@@ -110,6 +141,49 @@ class _MalListEditorDialogState extends State<MalListEditorDialog> {
             : media.anime!.totalEpisodes)
         : media.manga?.totalChapters;
     suffixText = "/ ${totalCount ?? '-'}";
+
+    if (userStatus == null && Mal.token.value.isNotEmpty) {
+      _fetchMissingUserStatus();
+    }
+  }
+
+  Future<void> _fetchMissingUserStatus() async {
+    try {
+      final fetched = await Mal.query?.mediaDetails(widget.media);
+      if (fetched != null && fetched.userStatus != null && mounted) {
+        setState(() {
+          widget.media
+            ..userStatus = fetched.userStatus
+            ..userProgress = fetched.userProgress
+            ..userScore = fetched.userScore
+            ..notes = fetched.notes
+            ..userStartedAt = fetched.userStartedAt
+            ..userCompletedAt = fetched.userCompletedAt
+            ..userRepeat = fetched.userRepeat;
+
+          status = getInitialStatus(fetched.userStatus, isAnime);
+          if (fetched.userProgress != null && fetched.userProgress! >= 0) {
+            progressController.text = fetched.userProgress.toString();
+          }
+          if (fetched.userScore != null && fetched.userScore! > 0) {
+            scoreController.text = (fetched.userScore! % 10 == 0)
+                ? (fetched.userScore! ~/ 10).toString()
+                : (fetched.userScore! / 10).toString();
+          }
+          if (noteController != null) {
+            noteController!.text = fetched.notes ?? "";
+          }
+          if (repeatController != null) {
+            repeatController!.text = fetched.userRepeat.toString();
+          }
+          startedAt = fetched.userStartedAt;
+          completedAt = fetched.userCompletedAt;
+        });
+        TrackSyncManager.instance.recordUserMedia(widget.media);
+      }
+    } catch (e) {
+      debugPrint("Error fetching missing MAL media status: $e");
+    }
   }
 
   @override
