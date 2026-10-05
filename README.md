@@ -3,27 +3,22 @@
     <summary>🌐</summary>
     <div>
       <div align="center">
-        <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=ar">العربية</a>
-        | <a href="https://openaitx.github.io/#/view?user=aayush2622&project=Dartotsu&lang=as">অসমীয়া</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=de">Deutsch</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=en">English</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=es">Español</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=fa">فارسی</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=fr">Français</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=hi">हिन्दी</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=id">Bahasa Indonesia</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=it">Italiano</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=ja">日本語</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=ko">한국어</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=nl">Nederlands</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=pl">Polski</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=pt">Português</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=ru">Русский</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=th">ไทย</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=tr">Türkçe</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=vi">Tiếng Việt</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=zh-CN">简体中文</a>
-        | <a href="https://openaitx.github.io/view.html?user=aayush2622&project=Dartotsu&lang=zh-TW">繁體中文</a>
+        <a href="#">العربية</a>
+        | <a href="#">Deutsch</a>
+        | <a href="#">English</a>
+        | <a href="#">Español</a>
+        | <a href="#">Français</a>
+        | <a href="#">हिन्दी</a>
+        | <a href="#">Bahasa Indonesia</a>
+        | <a href="#">Italiano</a>
+        | <a href="#">日本語</a>
+        | <a href="#">한국어</a>
+        | <a href="#">Português</a>
+        | <a href="#">Русский</a>
+        | <a href="#">ไทย</a>
+        | <a href="#">Türkçe</a>
+        | <a href="#">Tiếng Việt</a>
+        | <a href="#">简体中文</a>
       </div>
     </div>
   </details>
@@ -34,103 +29,102 @@
 </p>
 
 <p align="center">
-   <img src="https://img.shields.io/badge/platforms-android_ios_windows_linux_macos-06599d?style=for-the-badge&labelColor=00ffff&color=0d1117"/>
-   <a href="https://github.com/aayush2622/Dartotsu/releases"><img src="https://img.shields.io/github/downloads/aayush2622/Dartotsu/total?label=Downloads&logo=android&logoColor=1a8fa6&style=for-the-badge&labelColor=00ffff&color=0d1117"></a>
+   <img src="https://img.shields.io/badge/platforms-android_windows_linux-06599d?style=for-the-badge&labelColor=00ffff&color=0d1117"/>
+   <a href="https://github.com/LucidSami/Dartotsu-fork/releases"><img src="https://img.shields.io/github/v/release/LucidSami/Dartotsu-fork?style=for-the-badge&logoColor=168b94&label=Latest%20Release&labelColor=00ffff&color=0d1117"></a>
+   <img src="https://img.shields.io/badge/license-UPL-green?style=for-the-badge&labelColor=00ffff&color=0d1117"/>
+   <img src="https://img.shields.io/badge/status-active-success?style=for-the-badge&labelColor=00ffff&color=0d1117"/>
 </p>
 
-<p align="center">
-   <a href="https://www.codefactor.io/repository/github/aayush2622/Dartotsu"><img src="https://img.shields.io/codefactor/grade/github/aayush2622/Dartotsu?style=for-the-badge&label=Codefactor&labelColor=00ffff&color=0d1117" alt="CodeFactor"/></a>
-   <a href="https://hosted.weblate.org/engage/dartotsu/"><img alt="Weblate project translated" src="https://img.shields.io/weblate/progress/dartotsu?label=Translated&labelColor=00ffff&color=0d1117&style=for-the-badge"></a>
-   <a href="https://github.com/aayush2622/Dartotsu/stargazers"><img src="https://img.shields.io/github/stars/aayush2622/Dartotsu?style=for-the-badge&label=Stars&labelColor=00ffff&color=0d1117" alt="Stars" /></a>
-</p>
+# Dartotsu Fork
 
-# Dartotsu
+A modern, high-performance hybrid tracking client built in Flutter for **AniList**, **MyAnimeList (MAL)**, and **Simkl**.
 
-**Dartotsu** is a complete rewrite of [Dantotsu](https://git.rebelonion.dev/rebelonion/Dantotsu/) in Flutter. It's a hybrid [**AniList**](https://anilist.co/) and [**MyAnimeList**](https://myanimelist.net/) tracking client, along with [**Simkl**](https://simkl.com/) support!  
-> [!WARNING]  
-> **Dartotsu is a tracking and management tool only:** It does not host, provide, distribute, or maintain streaming content or extensions.  
->  
-> **User Responsibility:** Users are solely responsible for how they use the app and any third-party services or extensions they choose to interact with. Users must comply with all applicable laws, copyright, and intellectual property rights.  
->  
-> **No Liability:** The developer of Dartotsu disclaims all liability for misuse, legal issues, or violations arising from user actions. Any legal concerns related to third-party services or extensions must be directed to their creators, not Dartotsu.  
->  
-> **Services:** Dartotsu integrates only with official APIs of supported services. Third-party extensions are the responsibility of their creators, not the Dartotsu developer.  
+This project is a dedicated **Dartotsu fork** built by consolidating architectural paradigms, extension engines, and UI innovations from leading open-source anime, manga, and novel tracking ecosystems:
+- **[Dartotsu](https://github.com/aayush2622/Dartotsu)** — Core Flutter application framework and multi-service tracking foundation.
+- **[Saikou](https://github.com/saikou-app/saikou)** — Intuitive design patterns, UI ergonomics, and anime catalog experiences.
+- **[Dantotsu](https://git.rebelonion.dev/rebelonion/Dantotsu/)** — Feature-rich client mechanics and cross-service synchronization concepts.
+- **[AnymeX](https://github.com/RyanYuuki/AnymeX)** — Media playback pipelining, modern UI aesthetics, and novel reading workflows.
+- **[LNReader](https://github.com/LNReader/lnreader)** — Advanced light novel formatting, rendering engines, and pagination.
+- **[CloudStream](https://github.com/recloudstream/cloudstream)** — Modular extension bridging protocols and extensible architecture.
 
-## Downloads
-<p align="center">
+---
 
-  <a href="https://github.com/aayush2622/Dartotsu/releases/latest">
-    <img src="https://img.shields.io/github/v/release/aayush2622/Dartotsu?style=for-the-badge&logoColor=168b94&label=Stable&labelColor=00ffff&color=0d1117" alt="Latest Stable Release"/>
-  </a>
-  <a href="https://github.com/aayush2622/Dartotsu/releases/">
-    <img src="https://img.shields.io/github/v/release/aayush2622/Dartotsu?style=for-the-badge&include_prereleases&logoColor=087a87&label=Beta&labelColor=00ffff&color=0d1117" alt="Latest Pre-release"/>
-  </a>
-  <!--<a href="https://github.com/aayush2622/Dartotsu/releases/latest">
-    <img src="https://img.shields.io/github/v/release/aayush2622/Dartotsu?style=for-the-badge&display_name=tag&label=Alpha&labelColor=087a87&color=168b94" alt="Latest Alpha Release"/>
-  </a>-->
-  <br/>
-   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/aayush2622/Dartotsu"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" width="160"/>
-   </a>
+> [!IMPORTANT]
+> ### 🛡️ DMCA & Copyright Disclaimer: Tracking Client Only
+> **Dartotsu Fork is strictly a personal library management and list-tracking tool.**
+> 
+> - **Zero Hosted Content**: This application and repository do **NOT** host, upload, scrape, stream, distribute, or store any copyrighted multimedia content (no anime video files, no manga scanlations, no novel text, no torrent files).
+> - **Pure Tracking Frontend**: The app operates exclusively as a third-party frontend client interfacing with legitimate, public tracking databases ([AniList](https://anilist.co), [MyAnimeList](https://myanimelist.net), and [Simkl](https://simkl.com)) via their respective official APIs. It allows users to manage their watchlists, reading lists, scores, and episode counters.
+> - **No DMCA Issues**: Because this software does not provide access to or host any protected media, it is fully compliant with copyright laws and the Digital Millennium Copyright Act (DMCA).
+> - **User Responsibility & Third-Party Extensions**: Any external extensions or third-party add-ons are entirely decoupled and maintained by independent parties. Dartotsu Fork has no affiliation with or ownership of any third-party repositories. Users are individually responsible for their usage and compliance with applicable local laws and copyright regulations.
 
-</p>
+---
 
-> [!NOTE]
-> Download, test, and share feedback or issues on <a href="https://discord.gg/eyQdCpdubF" target="_blank">Discord</a>.
+## ✨ Key Features & Improvements
 
-## Support Us
-<a href='https://buymeacoffee.com/aayush262' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi1.png?v=3' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
-> [!TIP]
-> ⭐ **Star This Repository To Support The Developer And Encourage The Development Of The Application!**
-<details>
-  <summary>Star History</summary>
-  <a href="https://github.com/aayush2622/Dartotsu/stargazers">
-      <img alt="Star History Chart" src="https://starchart.cc/aayush2622/Dartotsu.svg?variant=adaptive" width="370" height="235" />
-  </a>
-</details>
+- **Reliable Hybrid Multi-Provider Sync**:
+  - Independent status handling: logged-in accounts (AniList, MAL, Simkl) track progress concurrently, while unauthenticated services are safely bypassed with zero errors.
+  - Zero reliance on unofficial third-party scraping proxies (pure official APIs with zero Jikan dependency).
+- **Instant Profile & Status Hydration**:
+  - Offline-first cache ensures user profile pictures, usernames, and watch stats appear instantly upon login and startup without blank screens or infinite loading states.
+- **Smooth Navigation & Aggressive Media Caching**:
+  - Native gesture scrolling across media details, character guides, and episode lists.
+  - Optimized caching pipelines for fluid playback and navigation.
+- **Light Novel & Manga Reading**:
+  - Integrated reader with customizable typography, dark/light themes, and automated chapter progression.
+- **Multiplatform Architecture**:
+  - Built for Android (ARM64), Windows Desktop, and Linux.
 
-## Official Communities
-Join our communities to stay updated and contribute to the discussion 
+---
 
-<a href="https://discord.gg/eyQdCpdubF" style="margin-right: 10px; display: inline-block;"><img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/discord-round-color-icon.png" alt="Discord" height="40" style="vertical-align: middle;"></a>
-<a href="https://www.reddit.com/r/dartotsu" style="display: inline-block;"><img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/reddit-icon.png" alt="Reddit" height="40" style="vertical-align: middle;"></a>
+## 📥 Downloads
 
-## Contribute
-We welcome contributions, from translations to new features. For inquiries, join our [Discord server](https://discord.gg/eyQdCpdubF). Pull requests are welcome; check the [open issues](https://github.com/aayush2622/Dartotsu/issues) for guidance on major changes.
+Pre-built binaries are available under **[GitHub Releases](https://github.com/LucidSami/Dartotsu-fork/releases)**:
 
-**Want to understand the structure or contribute more efficiently?**  
-Check the full project documentation on **DeepWiki** for helpful guides and technical insights.
+| Platform | Package | Notes |
+| :--- | :--- | :--- |
+| **Android** | `Dartotsu-Android-arm64.apk` | Optimized for ARM64 mobile devices |
+| **Windows** | `Dartotsu-Windows-x64.zip` | 64-bit Windows desktop portable bundle |
+| **Linux** | `Dartotsu-Linux-x64.tar.gz` | 64-bit Linux desktop bundle |
 
-<a href="https://deepwiki.com/aayush2622/Dartotsu" target="_blank" rel="noopener noreferrer">
-  <img src="https://img.shields.io/badge/DeepWiki-blueviolet?label=View%20on&style=for-the-badge&logo=read-the-docs&logoColor=white" alt="DeepWiki" />
-</a>
+---
 
-### Translation
-You can help us by translating the app into your language here
+## 🛠️ Building from Source
 
-<a href="https://hosted.weblate.org/projects/dartotsu/dartotsu/#languages"><img src="https://img.shields.io/badge/Weblate-90EE90?label=Translate%20On&style=for-the-badge" alt="Web"/></a>
-<details>
-<summary>Weblate Translation Graph</summary>
-<a href="https://hosted.weblate.org/projects/dartotsu/dartotsu/#languages"><img src="https://hosted.weblate.org/widget/dartotsu/dartotsu/multi-auto.svg" alt="Translation status" /></a>
-</details>
+### Prerequisites
+- [Flutter SDK](https://flutter.dev) (v3.47.5 stable recommended)
+- Java 17 JDK
+- Android SDK with NDK
 
-## Visitors
+### Build Commands
 
-<img src="https://count.getloli.com/@aayush2622?name=dartotsu&theme=rule34&padding=8&offset=0&align=top&scale=1&pixelated=1&darkmode=auto" />
+```bash
+# Clone the repository
+git clone https://github.com/LucidSami/Dartotsu-fork.git
+cd Dartotsu-fork
 
-## Acknowledgments
-A heartfelt thank you to everyone who has contributed to the development of Dartotsu.
-Your efforts are invaluable.
+# Fetch dependencies
+flutter pub get
 
-<a href="https://github.com/aayush2622/Dartotsu/graphs/contributors">
-  <img alt="GitHub contributors" src="https://img.shields.io/github/contributors/aayush2622/Dartotsu?style=flat-square&label=Contributors%20%3A&labelColor=%230f1318&color=%230f1318" align="left">
-</a>
-<br>
-<a href="https://github.com/aayush2622/Dartotsu/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=aayush2622/Dartotsu" alt="Contributors">
-</a>
+# Build Android ARM64 Release APK
+flutter build apk --release --target-platform android-arm64
 
-## License
-Dartotsu is licensed under the Unabandon Public License (UPL). More info can be found [here](LICENSE.md).
+# Build Desktop Releases
+flutter build windows --release   # On Windows
+flutter build linux --release     # On Linux
+```
 
+---
 
+## 🤝 Acknowledgments & Credits
 
+We extend our deep gratitude to the original authors and maintainers of the foundational open-source projects:
+- **Dartotsu** by [aayush2622](https://github.com/aayush2622)
+- **Saikou** by [saikou-app](https://github.com/saikou-app)
+- **Dantotsu** by [rebelonion](https://git.rebelonion.dev/rebelonion)
+- **AnymeX** by [RyanYuuki](https://github.com/RyanYuuki)
+- **LNReader** by [LNReader](https://github.com/LNReader)
+- **CloudStream** by [recloudstream](https://github.com/recloudstream)
+
+## 📄 License
+Dartotsu Fork is distributed under the Unabandon Public License (UPL). See [LICENSE.md](LICENSE.md) for full terms.
