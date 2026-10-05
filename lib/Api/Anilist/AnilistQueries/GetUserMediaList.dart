@@ -57,7 +57,8 @@ extension on AnilistQueries {
     }
 
     sorted['Favourites']?.forEach((fav) {
-      final matchingMedia = all.firstWhereOrNull((m) => m.id == fav.id);
+      final matchingMedia = all.firstWhereOrNull((m) => m.id == fav.id) ??
+          TrackSyncManager.instance.getUserMedia(fav.id);
       if (matchingMedia != null) {
         fav.userStatus = matchingMedia.userStatus;
         fav.userProgress = matchingMedia.userProgress;

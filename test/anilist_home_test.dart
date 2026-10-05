@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dartotsu/DataClass/Media.dart';
 import 'package:dartotsu/Api/Anilist/Data/fuzzyData.dart';
+import 'package:dartotsu/Api/Anilist/Data/media.dart' as anilistApi;
 
 void main() {
   test('Media serialization with FuzzyDate dates', () {
@@ -52,5 +53,50 @@ void main() {
     expect(media.id, 999);
     expect(media.userStartedAt, isNull);
     expect(media.userCompletedAt, isNull);
+  });
+
+  test('Media.mediaData and mediaListData accurately map all media list entry fields', () {
+    final jsonMedia = {
+      'id': 100,
+      'idMal': 200,
+      'title': {'english': 'Test Anime', 'romaji': 'Test Anime Romaji', 'userPreferred': 'Test Anime'},
+      'type': 'ANIME',
+      'mediaListEntry': {
+        'id': 777,
+        'status': 'COMPLETED',
+        'score': 95,
+        'progress': 24,
+        'repeat': 2,
+        'private': true,
+        'notes': 'Loved this anime!',
+        'startedAt': {'year': 2023, 'month': 10, 'day': 5},
+        'completedAt': {'year': 2024, 'month': 2, 'day': 20},
+      }
+    };
+
+    final deserializedApiMedia = anilistApi.Media.fromJson(jsonMedia);
+    final mappedMedia = Media.mediaData(deserializedApiMedia);
+
+    expect(mappedMedia.id, 100);
+    expect(mappedMedia.idMAL, 200);
+    expect(mappedMedia.userListId, 777);
+    expect(mappedMedia.userStatus, 'COMPLETED');
+    expect(mappedMedia.userScore, 95);
+    expect(mappedMedia.userProgress, 24);
+    expect(mappedMedia.userRepeat, 2);
+    expect(mappedMedia.isListPrivate, true);
+    expect(mappedMedia.notes, 'Loved this anime!');
+    expect(mappedMedia.userStartedAt?.year, 2023);
+    expect(mappedMedia.userCompletedAt?.year, 2024);
+  });
+
+  test('Recommendation relation type parses safely on dynamic types without NoSuchMethodError', () {
+    dynamic typeEnum = anilistApi.MediaType.ANIME;
+    final parsed = typeEnum?.toString().split('.').last ?? "";
+    expect(parsed, 'ANIME');
+
+    dynamic nullType;
+    final parsedNull = nullType?.toString().split('.').last ?? "";
+    expect(parsedNull, '');
   });
 }

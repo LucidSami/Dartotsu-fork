@@ -1,7 +1,7 @@
 part of '../AnilistQueries.dart';
 
 extension on AnilistQueries {
-  Future<Media?> _getMedia(int id, {bool mal = true}) async {
+  Future<Media?> _getMedia(int id, {bool mal = false}) async {
     final res = await executeQuery<MediaResponse>(_queryMediaData(id, mal: mal),
         force: true);
     final media = res?.data?.media;
@@ -35,10 +35,23 @@ String _queryMediaData(int id, {bool mal = false}) => '''{
       userPreferred
     }
     mediaListEntry {
-      progress 
-      private 
-      score(format: POINT_100) 
+      id
       status
+      score(format: POINT_100)
+      progress
+      repeat
+      private
+      notes
+      startedAt {
+        year
+        month
+        day
+      }
+      completedAt {
+        year
+        month
+        day
+      }
     }
   }
 }''';

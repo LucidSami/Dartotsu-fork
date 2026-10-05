@@ -121,6 +121,7 @@ extension on AnilistQueries {
             }
           }
 
+          final missingIds = <int>[];
           for (final m in returnArray) {
             final cached = TrackSyncManager.instance.getUserMedia(m.id);
             if (cached != null && cached.userStatus != null) {
@@ -132,8 +133,51 @@ extension on AnilistQueries {
               m.userRepeat = cached.userRepeat;
               m.userStartedAt = cached.userStartedAt;
               m.userCompletedAt = cached.userCompletedAt;
+            } else {
+              missingIds.add(m.id);
             }
             TrackSyncManager.instance.recordUserMedia(m);
+          }
+
+          if (missingIds.isNotEmpty && Anilist.userid != null && Anilist.userid! > 0) {
+            try {
+              final mediaListRes = await executeQuery<MediaResponse>('''
+                {
+                  Page {
+                    mediaList(userId: ${Anilist.userid}, mediaId_in: $missingIds) {
+                      mediaId
+                      status
+                      progress
+                      score(format: POINT_100)
+                      private
+                      notes
+                      repeat
+                      startedAt { year month day }
+                      completedAt { year month day }
+                    }
+                  }
+                }
+              ''');
+              final entries = mediaListRes?.data?.page?.mediaList;
+              if (entries != null) {
+                for (final entry in entries) {
+                  final match = returnArray.firstWhereOrNull((m) => m.id == entry.mediaId);
+                  if (match != null) {
+                    match.userStatus = entry.status?.name;
+                    match.userProgress = entry.progress;
+                    match.userScore = entry.score?.toInt() ?? 0;
+                    match.isListPrivate = entry.private ?? false;
+                    match.notes = entry.notes;
+                    match.userRepeat = entry.repeat ?? 0;
+                    match.userStartedAt = entry.startedAt;
+                    match.userCompletedAt = entry.completedAt;
+                    TrackSyncManager.instance.recordUserMedia(match);
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint("Error batch enriching home favourites $type: $e");
+            }
           }
 
           returnMap["favorite$type"] = returnArray;
@@ -161,7 +205,7 @@ extension on AnilistQueries {
             var mediaRecommendation = entry.mediaRecommendation;
             if (mediaRecommendation != null) {
               var media = Media.mediaData(mediaRecommendation);
-              media.relation = mediaRecommendation.type?.name ?? "";
+              media.relation = mediaRecommendation.type?.toString().split('.').last ?? "";
               subMap[media.id] = media;
             }
           }
@@ -170,7 +214,7 @@ extension on AnilistQueries {
             if (entry.media == null) continue;
             var media = Media.mediaListData(entry);
             if (['RELEASING', 'FINISHED'].contains(media.status)) {
-              media.relation = entry.media?.type?.name ?? "";
+              media.relation = entry.media?.type?.toString().split('.').last ?? "";
               subMap[media.id] = media;
             }
           }

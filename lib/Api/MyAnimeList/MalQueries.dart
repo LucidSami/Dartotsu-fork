@@ -71,7 +71,7 @@ class MalQueries extends Queries {
       _loadRankingPage(type, rankingType, page, limit: limit);
 
   @override
-  Future<Media?>? getMedia(int id, {bool mal = true}) {
+  Future<Media?>? getMedia(int id, {bool mal = false}) {
     // TODO: implement getMedia
     throw UnimplementedError();
   }

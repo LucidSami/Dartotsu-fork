@@ -66,7 +66,7 @@ class AnilistQueries extends Queries {
   Future<bool> getUserData() => _getUserData();
 
   @override
-  Future<Media?> getMedia(int id, {bool mal = true}) => _getMedia(id, mal: mal);
+  Future<Media?> getMedia(int id, {bool mal = false}) => _getMedia(id, mal: mal);
 
   @override
   Future<Media?> mediaDetails(Media media) => _mediaDetails(media);

@@ -9,7 +9,7 @@ abstract class Queries {
   ///
   /// If [mal] is true, it will use MyAnimeList's mapping for the ID.
   /// Returns a [Media] object if found.
-  Future<Media?>? getMedia(int id, {bool mal = true});
+  Future<Media?>? getMedia(int id, {bool mal = false});
 
   /// Fetches additional media details for the provided [media] object.
   /// Returns an updated [media] object.

@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:dartotsu/Adaptor/Settings/SettingsAdaptor.dart';
 import 'package:expandable_widgets/expandable_widgets.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../../Services/TrackSyncManager.dart';
 import '../../Widgets/CustomBottomDialog.dart';
 import '../../Widgets/DropdownMenu.dart';
 import 'Anilist.dart';
+import 'Data/data.dart';
 import 'Data/fuzzyData.dart';
 
 class ListEditorDialog extends StatefulWidget {
@@ -105,17 +107,55 @@ class _ListEditorDialogState extends State<ListEditorDialog> {
         : media.manga?.totalChapters;
     suffixText = "/ ${totalCount ?? '-'}";
 
-    if (userStatus == null && Anilist.token.value.isNotEmpty) {
+    if (userStatus == null &&
+        (Anilist.token.value.isNotEmpty || (Anilist.userid != null && Anilist.userid! > 0))) {
       _fetchMissingUserStatus();
     }
   }
 
   Future<void> _fetchMissingUserStatus() async {
     try {
-      final fetched = await Anilist.query?.getMedia(widget.media.id);
+      Media? fetched = await Anilist.query?.getMedia(widget.media.id, mal: widget.media.mal);
+
+      if ((fetched == null || fetched.userStatus == null) &&
+          Anilist.userid != null &&
+          Anilist.userid! > 0) {
+        final mediaListRes = await Anilist.executeQuery<MediaResponse>('''
+          {
+            Page {
+              mediaList(userId: ${Anilist.userid}, mediaId: ${widget.media.id}) {
+                id
+                status
+                progress
+                score(format: POINT_100)
+                private
+                notes
+                repeat
+                startedAt { year month day }
+                completedAt { year month day }
+              }
+            }
+          }
+        ''');
+        final entry = mediaListRes?.data?.page?.mediaList?.firstOrNull;
+        if (entry != null && entry.status != null) {
+          fetched ??= widget.media;
+          fetched.userListId = entry.id;
+          fetched.userStatus = entry.status?.name;
+          fetched.userProgress = entry.progress;
+          fetched.userScore = entry.score?.toInt() ?? 0;
+          fetched.isListPrivate = entry.private ?? false;
+          fetched.notes = entry.notes;
+          fetched.userRepeat = entry.repeat ?? 0;
+          fetched.userStartedAt = entry.startedAt;
+          fetched.userCompletedAt = entry.completedAt;
+        }
+      }
+
       if (fetched != null && fetched.userStatus != null && mounted) {
         setState(() {
           widget.media
+            ..userListId = fetched!.userListId
             ..userStatus = fetched.userStatus
             ..userProgress = fetched.userProgress
             ..userScore = fetched.userScore

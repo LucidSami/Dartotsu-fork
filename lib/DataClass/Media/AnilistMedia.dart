@@ -17,6 +17,11 @@ Media _mediaData(anilistApi.Media apiMedia) {
     userProgress: apiMedia.mediaListEntry?.progress,
     userScore: apiMedia.mediaListEntry?.score?.toInt() ?? 0,
     userStatus: apiMedia.mediaListEntry?.status?.name,
+    userListId: apiMedia.mediaListEntry?.id,
+    notes: apiMedia.mediaListEntry?.notes,
+    userRepeat: apiMedia.mediaListEntry?.repeat ?? 0,
+    userStartedAt: apiMedia.mediaListEntry?.startedAt,
+    userCompletedAt: apiMedia.mediaListEntry?.completedAt,
     meanScore: apiMedia.meanScore,
     startDate: apiMedia.startDate,
     endDate: apiMedia.endDate,
@@ -54,5 +59,10 @@ Media _mediaListData(anilistApi.MediaList mediaList) {
   media.userStatus = mediaList.status?.name;
   media.userUpdatedAt = mediaList.updatedAt;
   media.genres = mediaList.media?.genres ?? [];
+  media.userListId = mediaList.id;
+  media.notes = mediaList.notes;
+  media.userRepeat = mediaList.repeat ?? 0;
+  media.userStartedAt = mediaList.startedAt;
+  media.userCompletedAt = mediaList.completedAt;
   return media;
 }
